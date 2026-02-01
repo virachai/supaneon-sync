@@ -10,12 +10,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "supaneon"}]
-
-[project.dependencies]
-requests = "^2.31"
-python-dotenv = "^1.0"
-typer = "^0.9"
-psycopg[binary] = "^3.2"
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "typer>=0.9",
+    "psycopg[binary]>=3.2",
+]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "black", "mypy", "pre-commit"]
