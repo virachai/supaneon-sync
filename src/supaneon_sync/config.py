@@ -2,6 +2,10 @@ import os
 import re
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 REQUIRED_ENVS = ["SUPABASE_DATABASE_URL", "NEON_API_KEY"]
 
 DB_URL_RE = re.compile(r"^postgres(?:ql)?:\/\/.*[?&]sslmode=require")
