@@ -1,0 +1,64 @@
+name: SRT to Google Sheets Pipeline
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      audio_file:
+        description: "Path to the audio file to transcribe"
+        required: false
+        default: "audio.wav"
+      dry_run:
+        description: "Whether to perform a dry run (no submission)"
+        type: boolean
+        default: false
+      language:
+        description: "Language for transcription"
+        required: false
+        default: "th"
+
+jobs:
+  process-and-submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install .
+          # Install ffmpeg for whisper
+          sudo apt update && sudo apt install ffmpeg -y
+
+      - name: Transcribe and Submit
+        env:
+          GOOGLE_FORM_URL: ${{ secrets.GOOGLE_FORM_URL }}
+          GOOGLE_FORM_ENTRY_ID: ${{ secrets.GOOGLE_FORM_ENTRY_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          # Log the last 5 characters of the URL for verification (safe debugging)
+          if [ -n "$GOOGLE_FORM_URL" ]; then
+            echo "Google Form URL suffix: ...${GOOGLE_FORM_URL: -30}"
+            echo "Google Form Entry ID: ...${GOOGLE_FORM_ENTRY_ID}"
+          else
+            echo "Warning: GOOGLE_FORM_URL is not set."
+            echo "Warning: GOOGLE_FORM_ENTRY_ID is not set."
+          fi
+
+          # Use audio file from input or default example
+          AUDIO_PATH="${{ github.event.inputs.audio_file || 'audio.wav' }}"
+          if [ ! -f "$AUDIO_PATH" ]; then
+            echo "Error: $AUDIO_PATH not found."
+            exit 1
+          fi
+
+          # Run the integrated script
+          python whisper_to_google.py "$AUDIO_PATH" \
+            --language "${{ github.event.inputs.language || 'th' }}" \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}

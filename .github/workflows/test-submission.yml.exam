@@ -1,0 +1,36 @@
+name: Yearly Submission Connectivity Test
+
+on:
+  schedule:
+    # Run once a year on January 1st at 00:00 UTC
+    - cron: "0 0 1 1 *"
+  workflow_dispatch:
+    # Allow manual trigger for testing
+
+jobs:
+  test-connectivity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Run Connectivity Test
+        env:
+          GOOGLE_FORM_URL: ${{ secrets.GOOGLE_FORM_URL }}
+          GOOGLE_FORM_ENTRY_ID: ${{ secrets.GOOGLE_FORM_ENTRY_ID }}
+        run: |
+          if [ -z "$GOOGLE_FORM_URL" ] || [ -z "$GOOGLE_FORM_ENTRY_ID" ]; then
+            echo "Error: GOOGLE_FORM_URL or GOOGLE_FORM_ENTRY_ID secrets are not set."
+            exit 1
+          fi
+
+          # Log the ends of the secrets for safe verification
+          echo "Google Form URL suffix: ...${GOOGLE_FORM_URL: -10}"
+          echo "Google Form Entry ID suffix: ...${GOOGLE_FORM_ENTRY_ID: -4}"
+
+          python test_submission.py

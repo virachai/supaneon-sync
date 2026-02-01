@@ -1,0 +1,78 @@
+name: SRT to Google Sheets Pipeline
+
+on:
+  schedule:
+    # Run every 2 hours
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: srt-to-gsheet
+  cancel-in-progress: true
+
+jobs:
+  process-and-submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # Needed for git diff
+
+      - name: Check if audio changed
+        id: audio_check
+        run: |
+          if git diff --quiet HEAD~1 HEAD -- audio.wav; then
+            echo "Audio file has not changed."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Audio file has changed."
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true # Allow manual dispatch to bypass this if history is missing
+
+      - name: Set up Python
+        if: steps.audio_check.outputs.changed != 'false' || github.event_name == 'workflow_dispatch'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Cache dependencies
+        if: steps.audio_check.outputs.changed != 'false' || github.event_name == 'workflow_dispatch'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        if: steps.audio_check.outputs.changed != 'false' || github.event_name == 'workflow_dispatch'
+        run: |
+          pip install .
+          # Install ffmpeg for whisper
+          sudo apt update && sudo apt install ffmpeg -y
+
+      - name: Transcribe and Submit
+        if: steps.audio_check.outputs.changed != 'false' || github.event_name == 'workflow_dispatch'
+        env:
+          GOOGLE_FORM_URL: ${{ secrets.GOOGLE_FORM_URL }}
+          GOOGLE_FORM_ENTRY_ID: ${{ secrets.GOOGLE_FORM_ENTRY_ID }}
+          OMP_NUM_THREADS: 2
+        run: |
+          # Log the last 5 characters of the URL for verification (safe debugging)
+          if [ -n "$GOOGLE_FORM_URL" ]; then
+            echo "Google Form URL suffix: ...${GOOGLE_FORM_URL: -30}"
+          else
+            echo "Warning: GOOGLE_FORM_URL is not set."
+          fi
+
+          # Use audio file from input or default example
+          AUDIO_PATH="audio.wav"
+          if [ ! -f "$AUDIO_PATH" ]; then
+            echo "Error: $AUDIO_PATH not found."
+            exit 1
+          fi
+
+          # Run the integrated script
+          python whisper_to_google.py "$AUDIO_PATH" --language "th" --model turbo
