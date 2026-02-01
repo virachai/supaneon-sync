@@ -1,0 +1,20 @@
+{
+    "github.copilot.enable": {
+        "*": true,
+        "markdown": true,
+        "plaintext": true
+    },
+    "editor.inlineSuggest.enabled": true,
+    "editor.quickSuggestions": {
+        "other": false,
+        "comments": false,
+        "strings": false
+    },
+    "editor.suggest.showWords": false,
+    "editor.suggest.showSnippets": false,
+    "editor.acceptSuggestionOnEnter": "on",
+    "editor.tabCompletion": "on",
+    "editor.parameterHints.enabled": false,
+    "workbench.editor.enablePreview": false,
+    "editor.minimap.enabled": false
+}
