@@ -29,14 +29,14 @@ def validate_env() -> Config:
         raise SystemExit(
             f"Missing required environment variables: {', '.join(missing)}"
         )
-    
-    # Optional password, but warned if missing in backup context? 
+
+    # Optional password, but warned if missing in backup context?
     # For now, let's treat it as optional in strict config validation unless we want to enforce it always.
     # The plan said "Add NEON_DB_PASSWORD to the required envs".
     # But let's check if the user wanted it required. "For now, I will assume we need to add NEON_DB_PASSWORD to the secrets".
     # I'll make it optional in the Config struct but maybe check it in backup.py if needed.
     # Actually, let's make it optional here to avoid breaking other things if they don't use it.
-    
+
     supabase_url = os.environ["SUPABASE_DATABASE_URL"].strip()
     if not DB_URL_RE.search(supabase_url):
         raise SystemExit("SUPABASE_DATABASE_URL must include sslmode=require")
