@@ -157,6 +157,10 @@ supaneon-sync restore-test
     *   Update `NEON_API_KEY` in GitHub Secrets.
     *   Revoke old key.
 
+3.  **Neon DB Password:**
+    *   This is required for `pg_restore` and is passed via `NEON_DB_PASSWORD` in GitHub Secrets.
+    *   If you rotate the `neondb_owner` password or the user you are using (`NEON_DB_USER` env, defaults to `neondb_owner`), update the secret immediately.
+
 ### Cleaning Up Old Branches
 Currently, the system does not auto-delete old backup branches (to prevent accidental data loss).
 **Periodic Task:**

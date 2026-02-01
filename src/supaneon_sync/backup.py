@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import subprocess
+import os
 from typing import Optional
 
 from .config import validate_env
@@ -20,29 +21,77 @@ def run(supabase_url: Optional[str] = None, neon_api_key: Optional[str] = None):
     neon_api_key = neon_api_key or cfg.neon_api_key
 
     client = NeonClient(api_key=neon_api_key, project_id=cfg.neon_project_id)
-    branch = f"backup-{_timestamp()}"
-    client.create_branch(branch)
+    branch_name = f"backup-{_timestamp()}"
+    print(f"Creating branch {branch_name}...")
+    branch = client.create_branch(branch_name)
+    
+    # Need to wait/fetch for endpoint host?
+    # Usually create_branch returns fast, but endpoint might take a moment or be computable.
+    # The NeonClient.create_branch implementation we just wrote attempts to parse it but defaults to None if missing.
+    # So we should call get_branch_host.
+    
+    print(f"Fetching connection info for {branch.id}...")
+    host = client.get_branch_host(branch.id)
+    print(f"Target host: {host}")
+
+    # Construct connection string
+    # User must provide password via NEON_DB_PASSWORD env, or we assume something else?
+    # The RUNBOOK mentions creating a restore_user. 
+    # If NEON_DB_PASSWORD is not set, this might fail unless .pgpass is used.
+    # We will use the env var if present.
+    
+    user = os.environ.get("NEON_DB_USER", "neondb_owner") # Default or from env
+    password = cfg.neon_db_password
+    
+    if not password:
+        print("WARNING: NEON_DB_PASSWORD not set. pg_restore might fail if authentication is required.")
+    
+    # Connection string for pg_restore
+    # postgresql://user:password@host/neondb?sslmode=require
+    # Note: Neon DB name is usually 'neondb'
+    
+    target_db_url = f"postgresql://{user}:{password}@{host}/neondb?sslmode=require"
 
     # Use pg_dump -> pg_restore piping where possible
+    print("Starting pg_dump | pg_restore pipeline...")
     dump_cmd = ["pg_dump", "--format=custom", "--no-owner", "--no-acl", supabase_url]
+    
     restore_cmd = [
         "pg_restore",
         "--dbname",
-        f"postgresql://{branch}",
-    ]  # placeholder, replace with real branch target
-
-    # Note: In Actions the DB target for the branch must be obtained via Neon API.
+        target_db_url,
+        "--no-owner", # Often good for cloud targets to avoid role errors
+        "--no-acl"
+    ]
 
     try:
         dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
         if dump_proc.stdout is None:
             raise RuntimeError("Failed to capture pg_dump stdout")
-        restore_proc = subprocess.Popen(restore_cmd, stdin=dump_proc.stdout)
+            
+        restore_env = os.environ.copy()
+        if password:
+            restore_env["PGPASSWORD"] = password
+            
+        restore_proc = subprocess.Popen(restore_cmd, stdin=dump_proc.stdout, env=restore_env)
         dump_proc.stdout.close()
-        rc = restore_proc.wait()
+        
+        while restore_proc.poll() is None:
+             # Wait for it
+             pass
+             
+        rc = restore_proc.returncode
         if rc != 0:
-            raise SystemExit(rc)
+            raise SystemExit(f"Restore failed with exit code {rc}")
+            
+        # Check dump process too
+        drc = dump_proc.wait()
+        if drc != 0:
+             raise SystemExit(f"Dump failed with exit code {drc}")
+
+        print("Backup and restore completed successfully.")
+
     finally:
         # Placeholders for cleanup/metadata logging
-        print(f"backup.branch={branch}")
+        print(f"backup.branch={branch_name}")
         print("backup.timestamp=" + _timestamp())
