@@ -1,7 +1,6 @@
 """Deterministic smoke tests run against a Neon branch DB URL."""
 from __future__ import annotations
 
-import sys
 import psycopg
 
 

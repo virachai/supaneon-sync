@@ -2,7 +2,6 @@ import typer
 from . import config
 from . import backup
 from . import restore
-from . import healthcheck
 
 app = typer.Typer()
 

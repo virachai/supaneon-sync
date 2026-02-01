@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import datetime
-import os
-import shlex
 import subprocess
-import sys
 from typing import Optional
 
 from .config import validate_env

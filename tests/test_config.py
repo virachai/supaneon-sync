@@ -1,4 +1,3 @@
-import os
 import pytest
 
 from supaneon_sync.config import validate_env
