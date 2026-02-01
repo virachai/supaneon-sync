@@ -1,3 +1,5 @@
+# Dev Lead pick
+
 You are acting as a Staff / Principal Engineer with strong experience in
 SRE, cloud infrastructure, PostgreSQL, and disaster recovery systems.
 
@@ -45,6 +47,7 @@ Primary objectives:
 - Favor reliability and clarity over clever optimizations
 
 Out of scope:
+
 - Streaming replication
 - Active-active databases
 - Paid services
@@ -56,6 +59,7 @@ Out of scope:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Secrets & Access:
+
 - No secrets in code, logs, or repo
 - All credentials via environment variables only
 - Enforce `sslmode=require` on all DB connections
@@ -64,12 +68,14 @@ Secrets & Access:
   - Neon: restore-only role (optionally schema-scoped)
 
 Logging:
+
 - Never log connection strings
 - Never log SQL statements
 - Never log PII or row-level data
 - Log only high-level steps and outcomes
 
 Data handling:
+
 - Avoid persistent dump files when possible (pipe pg_dump → pg_restore)
 - If temp files are used, delete immediately after use
 - Exclude volatile or sensitive tables by default (configurable)
@@ -88,6 +94,7 @@ Data handling:
 - Timestamped backup identity
 
 Expected behavior:
+
 - A failed dump MUST abort restore
 - A failed restore MUST fail the workflow
 - Partial success is not acceptable
@@ -99,6 +106,7 @@ Expected behavior:
 Use Neon branching to ensure safety and rollback capability.
 
 Rules:
+
 - Never restore directly into Neon `main`
 - Create a new branch for every backup run
 - Branch names must include timestamps (UTC)
@@ -106,6 +114,7 @@ Rules:
 - Old branches may be cleaned up optionally
 
 Branch purposes:
+
 - main            → stable standby
 - backup-YYYYMMDD → immutable backups
 - restore-test    → temporary validation branch
@@ -115,11 +124,13 @@ Branch purposes:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Failover design:
+
 - No code changes required
 - Promotion achieved by switching DATABASE_URL only
 - Application must be Neon-compatible without modification
 
 Document and implement:
+
 - Clear promotion steps
 - Known limitations (RPO = last backup)
 - Rollback considerations
@@ -131,6 +142,7 @@ Document and implement:
 Restore testing is mandatory.
 
 Workflow:
+
 1. Create temporary Neon test branch
 2. Restore latest backup into test branch
 3. Run smoke tests:
@@ -145,6 +157,7 @@ Workflow:
    - Fail the workflow
 
 Smoke tests must be:
+
 - Fast
 - Deterministic
 - Non-destructive
@@ -168,16 +181,19 @@ Smoke tests must be:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Logs must include:
+
 - Timestamps
 - Current phase (dump / restore / test)
 - Target Neon branch
 - Final success or failure state
 
 Optional:
+
 - Backup checksum
 - Metadata table in Neon
 
 Do NOT include:
+
 - Raw SQL
 - Table data
 - Credentials
@@ -205,6 +221,7 @@ supaneon-sync/
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Code:
+
 - Pythonic, readable, modular
 - Type hints where appropriate
 - Explicit exceptions
@@ -213,6 +230,7 @@ Code:
 - No hidden side effects
 
 Documentation:
+
 - README must explain:
   - setup
   - security model
@@ -228,6 +246,7 @@ Documentation:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 The implementation is complete only if:
+
 - Supabase data is reliably backed up to Neon
 - Neon branches are used safely
 - Restore tests run automatically
