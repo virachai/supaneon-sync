@@ -6,6 +6,7 @@ REQUIRED_ENVS = ["SUPABASE_DATABASE_URL", "NEON_API_KEY"]
 
 DB_URL_RE = re.compile(r"^postgres(?:ql)?:\/\/.*[?&]sslmode=require")
 
+
 @dataclass
 class Config:
     supabase_database_url: str
@@ -20,7 +21,9 @@ def validate_env() -> Config:
     """
     missing = [k for k in REQUIRED_ENVS if k not in os.environ or not os.environ[k]]
     if missing:
-        raise SystemExit(f"Missing required environment variables: {', '.join(missing)}")
+        raise SystemExit(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
 
     supabase_url = os.environ["SUPABASE_DATABASE_URL"].strip()
     if not DB_URL_RE.search(supabase_url):
@@ -29,4 +32,8 @@ def validate_env() -> Config:
     neon_key = os.environ["NEON_API_KEY"].strip()
     neon_project = os.environ.get("NEON_PROJECT_ID")
 
-    return Config(supabase_database_url=supabase_url, neon_api_key=neon_key, neon_project_id=neon_project)
+    return Config(
+        supabase_database_url=supabase_url,
+        neon_api_key=neon_key,
+        neon_project_id=neon_project,
+    )

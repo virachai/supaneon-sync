@@ -18,7 +18,9 @@ def test_validate_env_requires_ssl(monkeypatch):
 
 
 def test_validate_env_ok(monkeypatch):
-    monkeypatch.setenv("SUPABASE_DATABASE_URL", "postgres://user@localhost/db?sslmode=require")
+    monkeypatch.setenv(
+        "SUPABASE_DATABASE_URL", "postgres://user@localhost/db?sslmode=require"
+    )
     monkeypatch.setenv("NEON_API_KEY", "test")
     cfg = validate_env()
     assert cfg.supabase_database_url.endswith("sslmode=require")

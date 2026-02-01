@@ -1,4 +1,5 @@
 """Backup orchestration: create Neon branch, run pg_dump from Supabase, restore into branch."""
+
 from __future__ import annotations
 
 import datetime
@@ -24,12 +25,18 @@ def run(supabase_url: Optional[str] = None, neon_api_key: Optional[str] = None):
 
     # Use pg_dump -> pg_restore piping where possible
     dump_cmd = ["pg_dump", "--format=custom", "--no-owner", "--no-acl", supabase_url]
-    restore_cmd = ["pg_restore", "--dbname", f"postgresql://{branch}"]  # placeholder, replace with real branch target
+    restore_cmd = [
+        "pg_restore",
+        "--dbname",
+        f"postgresql://{branch}",
+    ]  # placeholder, replace with real branch target
 
     # Note: In Actions the DB target for the branch must be obtained via Neon API.
 
     try:
         dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
+        if dump_proc.stdout is None:
+            raise RuntimeError("Failed to capture pg_dump stdout")
         restore_proc = subprocess.Popen(restore_cmd, stdin=dump_proc.stdout)
         dump_proc.stdout.close()
         rc = restore_proc.wait()

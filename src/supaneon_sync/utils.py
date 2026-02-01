@@ -1,4 +1,5 @@
 """Utility helpers for logging and safe printing."""
+
 from __future__ import annotations
 
 import logging
