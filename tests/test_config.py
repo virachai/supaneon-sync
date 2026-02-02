@@ -27,3 +27,19 @@ def test_validate_env_ok(monkeypatch):
     cfg = validate_env()
     assert cfg.mongodb_srv_url.startswith("mongodb+srv://")
     assert cfg.neon_database_url.endswith("sslmode=require")
+    assert cfg.mongodb_tls_allow_invalid_certs is False
+
+
+def test_validate_env_tls_insecure(monkeypatch):
+    monkeypatch.setenv("MONGODB_SRV_URL", "mongodb+srv://user@cluster.mongodb.net/test")
+    monkeypatch.setenv(
+        "NEON_DATABASE_URL", "postgres://user@localhost/db?sslmode=require"
+    )
+
+    monkeypatch.setenv("MONGODB_TLS_ALLOW_INVALID_CERTS", "true")
+    cfg = validate_env()
+    assert cfg.mongodb_tls_allow_invalid_certs is True
+
+    monkeypatch.setenv("MONGODB_TLS_ALLOW_INVALID_CERTS", "FALSE")
+    cfg = validate_env()
+    assert cfg.mongodb_tls_allow_invalid_certs is False

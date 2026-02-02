@@ -17,6 +17,7 @@ MONGO_URL_RE = re.compile(r"^mongodb(?:\+srv)?:\/\/")
 class Config:
     mongodb_srv_url: str
     neon_database_url: str
+    mongodb_tls_allow_invalid_certs: bool = False
     neon_api_key: str | None = None
     neon_project_id: str | None = None
     neon_db_password: str | None = None
@@ -64,9 +65,12 @@ def validate_env() -> Config:
     except Exception:
         pass
 
+    mongodb_tls_allow_invalid_certs = os.environ.get("MONGODB_TLS_ALLOW_INVALID_CERTS", "false").lower() == "true"
+
     return Config(
         mongodb_srv_url=mongodb_url,
         neon_database_url=neon_url,
+        mongodb_tls_allow_invalid_certs=mongodb_tls_allow_invalid_certs,
         neon_api_key=neon_key,
         neon_project_id=neon_project,
         neon_db_password=neon_password,

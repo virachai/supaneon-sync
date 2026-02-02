@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import psycopg
 import pymongo  # type: ignore
+import certifi  # type: ignore
 from typing import Any, Optional
 from bson import ObjectId  # type: ignore
 
@@ -69,14 +71,40 @@ def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
 
     print(f"Starting MongoDB backup from {mongodb_url}...")
 
-    # Connect to MongoDB
-    client: Any = pymongo.MongoClient(mongodb_url)
+    # Connect to MongoDB with enhanced SSL/TLS handling
+    mongo_kwargs: dict[str, Any] = {
+        "tls": True,
+        "tlsCAFile": certifi.where(),
+        "serverSelectionTimeoutMS": 10000,  # 10s timeout
+    }
+
+    if cfg.mongodb_tls_allow_invalid_certs:
+        print("WARNING: Allowing invalid MongoDB TLS certificates (insecure)")
+        mongo_kwargs["tlsAllowInvalidCertificates"] = True
+
+    client: Any = pymongo.MongoClient(mongodb_url, **mongo_kwargs)
     try:
         # Ping check
+        print("Pinging MongoDB...")
         client.admin.command("ping")
         print("Connected to MongoDB successfully.")
+    except pymongo.errors.ServerSelectionTimeoutError as e:
+        msg = str(e)
+        if "SSL handshake failed" in msg or "TLSV1_ALERT_INTERNAL_ERROR" in msg:
+            print("\n" + "!" * 60)
+            print("CRITICAL ERROR: MongoDB SSL/TLS handshake failed.")
+            print("Possible causes:")
+            print("1. Your IP may not be whitelisted in MongoDB Atlas.")
+            print("   Check 'Network Access' in Atlas console.")
+            print("2. Certificate verification failure.")
+            print("!" * 60 + "\n")
+        raise
+    except Exception as e:
+        print(f"ERROR connecting to MongoDB: {e}")
+        raise
 
-        # Get database name from URL or default to 'primary'
+    try:
+        # Get database name from URL or default to 'test'
         db_name = pymongo.uri_parser.parse_uri(mongodb_url).get("database") or "test"
         db = client[db_name]
         collections = db.list_collection_names()
