@@ -102,6 +102,8 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
                     new_line = new_line.replace("extensions.", "public.")
                     new_line = new_line.replace('"extensions".', '"public".')
 
+                    new_line = new_line.replace("'public.", f"'{new_schema}.")
+
                     fout.write(new_line)
 
         # ---------------------------
