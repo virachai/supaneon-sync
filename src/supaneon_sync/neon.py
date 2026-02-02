@@ -38,6 +38,24 @@ class NeonClient:
     def _url(self, path: str) -> str:
         return f"{NEON_API_BASE}{path}"
 
+    def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+        url = self._url(path)
+        try:
+            resp = self.session.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.ConnectionError as e:
+            # Provide a more helpful message for DNS/network issues
+            raise SystemExit(
+                f"ERROR: Could not connect to Neon API at {NEON_API_BASE}.\n"
+                f"Details: {e}\n"
+                "Please check your internet connection and DNS settings."
+            ) from e
+        except requests.exceptions.HTTPError as e:
+            # Handle specific API errors
+            err_msg = f"HTTP Error {e.response.status_code}: {e.response.text}"
+            raise SystemExit(f"ERROR: Neon API request failed: {err_msg}") from e
+
     def create_branch(
         self, branch_name: str, parent_id: str | None = None
     ) -> NeonBranch:
@@ -52,8 +70,7 @@ class NeonClient:
         if parent_id:
             payload["parent_id"] = parent_id
 
-        resp = self.session.post(self._url(path), json=payload)
-        resp.raise_for_status()
+        resp = self._request("POST", path, json=payload)
         data = resp.json()
 
         # Depending on API response, we might get the endpoint host here or need a separate call.
@@ -71,32 +88,21 @@ class NeonClient:
             else datetime.datetime.utcnow()
         )
 
-        # Check for endpoints
-        host = None
-        # Often the create response includes computed endpoints or we need to fetch them.
-        # For robustness, we can call get_branch_endpoints(branch_id) if missing.
-
         return NeonBranch(
             id=branch_id,
             name=branch_data.get("name", branch_name),
             created_at=created_at,
-            host=host,
+            host=None,
         )
 
     def delete_branch(self, branch_id: str) -> None:
-        """Delete a branch by its ID.
-
-        Note: The Neon API DELETE endpoint expects a branch ID in the URL path.
-        While the parameter was historically named 'branch_name', it should be
-        passed a branch ID (from NeonBranch.id) for correct operation.
-        """
+        """Delete a branch by its ID."""
         path = (
             f"/v1/projects/{self.project_id}/branches/{branch_id}"
             if self.project_id
             else f"/v1/branches/{branch_id}"
         )
-        resp = self.session.delete(self._url(path))
-        resp.raise_for_status()
+        self._request("DELETE", path)
 
     def list_branches(self) -> list[NeonBranch]:
         path = (
@@ -104,8 +110,7 @@ class NeonClient:
             if self.project_id
             else "/v1/branches"
         )
-        resp = self.session.get(self._url(path))
-        resp.raise_for_status()
+        resp = self._request("GET", path)
         data = resp.json()
 
         results = []
@@ -117,14 +122,14 @@ class NeonClient:
                     created_at=datetime.datetime.fromisoformat(
                         b.get("created_at").replace("Z", "+00:00")
                     ),
-                    host=None,  # endpoints usually require separate pass or deep inspection
+                    host=None,
                 )
             )
         return results
 
     def latest_backup_branch(
         self,
-    ) -> NeonBranch | None:  # Return full object not just string
+    ) -> NeonBranch | None:
         branches = self.list_branches()
         backups = [b for b in branches if b.name.startswith("backup-")]
         if not backups:
@@ -134,10 +139,8 @@ class NeonClient:
 
     def get_branch_host(self, branch_id: str) -> str:
         """Fetch the read-write endpoint host for a branch."""
-        # GET /projects/{project_id}/branches/{branch_id}/endpoints
         path = f"/v1/projects/{self.project_id}/branches/{branch_id}/endpoints"
-        resp = self.session.get(self._url(path))
-        resp.raise_for_status()
+        resp = self._request("GET", path)
         data = resp.json()
 
         endpoints = data.get("endpoints", [])
@@ -145,7 +148,6 @@ class NeonClient:
             if ep.get("type") == "read_write":
                 return ep.get("host")
 
-        # Fallback if no specific RW found (rare)
         if endpoints:
             return endpoints[0].get("host")
 
