@@ -38,7 +38,7 @@ def validate_env() -> Config:
 
     neon_key = os.environ["NEON_API_KEY"].strip()
     neon_project = os.environ.get("NEON_PROJECT_ID")
-    
+
     neon_url = os.environ.get("NEON_DATABASE_URL")
     neon_password = os.environ.get("NEON_DB_PASSWORD")
     neon_user = os.environ.get("NEON_DB_USER")

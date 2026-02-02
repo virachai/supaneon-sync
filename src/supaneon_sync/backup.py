@@ -58,7 +58,9 @@ def run(supabase_url: Optional[str] = None, neon_api_key: Optional[str] = None):
     # If NEON_DB_PASSWORD is not set, this might fail unless .pgpass is used.
     # We will use the env var if present.
 
-    user = cfg.neon_db_user or os.environ.get("NEON_DB_USER", "neondb_owner")  # Default or from env
+    user = cfg.neon_db_user or os.environ.get(
+        "NEON_DB_USER", "neondb_owner"
+    )  # Default or from env
     password = cfg.neon_db_password
 
     if not password:

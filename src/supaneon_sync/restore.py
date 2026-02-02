@@ -40,7 +40,9 @@ def run_restore_test():
 
     # For healthchecks, we need a valid connection.
     if not password:
-        print("WARNING: NEON_DB_PASSWORD not set (and not found in NEON_DATABASE_URL). Healthcheck might fail.")
+        print(
+            "WARNING: NEON_DB_PASSWORD not set (and not found in NEON_DATABASE_URL). Healthcheck might fail."
+        )
 
     db_url = f"postgresql://{user}:{password}@{host}/neondb?sslmode=require"
 

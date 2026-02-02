@@ -219,8 +219,10 @@ When contributing to this codebase:
 
 ### Testing Requirements
 - Failed restore = failed workflow
+- Failed restore = failed workflow
 - Pre-commit hooks enforce black + ruff
 - CI runs: ruff check, black check, pytest
+- **Agent Rule:** After any code change, run `/check-all-passed` to verify quality.
 
 ## GitHub Actions Workflows
 
