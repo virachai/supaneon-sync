@@ -18,28 +18,28 @@ def _timestamp() -> str:
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
-    with psycopg.connect(neon_url) as conn:
+    with psycopg.connect(conn_url) as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(
-                f"""
-            DO $$
-            DECLARE r RECORD;
-            BEGIN
-                FOR r IN
-                    SELECT tablename
-                    FROM pg_tables
-                    WHERE schemaname = %s
-                LOOP
-                    EXECUTE format(
-                        'ALTER TABLE %I.%I DISABLE ROW LEVEL SECURITY',
-                        %s, r.tablename
-                    );
-                END LOOP;
-            END$$;
-            """,
-                (new_schema, new_schema),
+                """
+                DO $$
+                DECLARE r RECORD;
+                BEGIN
+                    FOR r IN
+                        SELECT tablename
+                        FROM pg_tables
+                        WHERE schemaname = %s
+                    LOOP
+                        EXECUTE format(
+                            'ALTER TABLE %I.%I DISABLE ROW LEVEL SECURITY',
+                            %s, r.tablename
+                        );
+                    END LOOP;
+                END$$;
+                """
             )
+            return [row[0] for row in cur.fetchall()]
 
     # with psycopg.connect(conn_url) as conn:
     #     with conn.cursor() as cur:
