@@ -1,4 +1,4 @@
-# supaneon-sync
+# Supabase to Neon Sync
 
 **Production-grade Supabase to Neon logical backup and disaster recovery automation.**
 
