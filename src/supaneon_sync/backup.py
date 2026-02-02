@@ -95,6 +95,11 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         #     "postgresql://",
         # ]
 
+        assert supabase_url.startswith("postgresql://"), supabase_url
+
+        # dump_env = os.environ.copy()
+        # dump_env["PGHOSTADDR"] = "0.0.0.0"
+
         dump_cmd = [
             "pg_dump",
             "--format=custom",
@@ -106,10 +111,8 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             supabase_url,
         ]
 
-        dump_env = os.environ.copy()
-        dump_env["PGHOSTADDR"] = "0.0.0.0"
-
-        subprocess.run(dump_cmd, check=True, env=dump_env)
+        subprocess.run(dump_cmd, check=True)
+        # subprocess.run(dump_cmd, check=True, env=dump_env)
 
         # ---------------------------
         # Restore into Neon
