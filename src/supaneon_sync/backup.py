@@ -95,8 +95,6 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         #     "postgresql://",
         # ]
 
-        assert supabase_url.startswith("postgresql://"), supabase_url
-
         # dump_env = os.environ.copy()
         # dump_env["PGHOSTADDR"] = "0.0.0.0"
 
