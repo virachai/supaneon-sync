@@ -94,6 +94,8 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "REVOKE ",
             "ALTER DEFAULT PRIVILEGES",
             "SET ROLE",
+            "anon",
+            "ping" "POLICY",
         )
 
         # We replace "public" with the new schema name in the SQL dump.
