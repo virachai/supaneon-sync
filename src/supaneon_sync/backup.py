@@ -8,7 +8,7 @@ import os
 import socket
 import psycopg
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 from .config import validate_env
 
