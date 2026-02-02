@@ -29,6 +29,10 @@ jobs:
 
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
+
+          echo "/usr/lib/postgresql/17/bin" >> $GITHUB_PATH
+      - name: Verify pg_dump
+        run: pg_dump --version
       - name: Install Supabase CLI
         run: |
           curl -fsSL https://cli.supabase.com/install.sh | sh
