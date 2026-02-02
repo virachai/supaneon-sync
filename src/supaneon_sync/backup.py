@@ -1,123 +1,123 @@
-"""Backup orchestration: create Neon branch, run pg_dump from Supabase, restore into branch."""
+"""Backup orchestration: create Neon schema, run pg_dump from Supabase, restore into schema."""
 
 from __future__ import annotations
 
 import datetime
 import subprocess
 import os
+import psycopg
 from typing import Optional
 
 from .config import validate_env
-from .neon import NeonClient
 
 
 def _timestamp() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def run(supabase_url: Optional[str] = None, neon_api_key: Optional[str] = None):
+def list_backup_schemas(conn_url: str) -> list[str]:
+    """List all schemas in Neon that start with 'backup_'."""
+    with psycopg.connect(conn_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'backup_%' ORDER BY schema_name ASC"
+            )
+            return [row[0] for row in cur.fetchall()]
+
+
+def delete_schema(conn_url: str, schema_name: str) -> None:
+    """Delete a schema and all its contents."""
+    with psycopg.connect(conn_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
+
+
+def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     cfg = validate_env()
     supabase_url = supabase_url or cfg.supabase_database_url
-    neon_api_key = neon_api_key or cfg.neon_api_key
+    neon_url = neon_url or cfg.neon_database_url
 
-    client = NeonClient(api_key=neon_api_key, project_id=cfg.neon_project_id)
-    branch_name = f"backup-{_timestamp()}"
+    # Rotation Policy: Max 6 backup schemas.
+    # If we already have >= 6, delete oldest until we have 5.
+    backup_schemas = list_backup_schemas(neon_url)
 
-    # Rotation Policy: Max 6 backup branches.
-    # If we already have >= 6, delete oldest until we have 5 (so the new one becomes the 6th).
-    branches = client.list_branches()
-    backup_branches = [b for b in branches if b.name.startswith("backup-")]
-    # Sort by created_at (oldest first)
-    backup_branches.sort(key=lambda b: b.created_at)
-
-    max_branches = 6
-    while len(backup_branches) >= max_branches:
-        oldest = backup_branches.pop(0)
-        print(f"Rotation: deleting old branch {oldest.name}...")
+    max_schemas = 6
+    while len(backup_schemas) >= max_schemas:
+        oldest = backup_schemas.pop(0)
+        print(f"Rotation: deleting old schema {oldest}...")
         try:
-            # delete_branch() expects a branch ID (see neon.py)
-            client.delete_branch(oldest.id)
+            delete_schema(neon_url, oldest)
         except Exception as e:
-            print(f"WARNING: Failed to delete old branch {oldest.name}: {e}")
+            print(f"WARNING: Failed to delete old schema {oldest}: {e}")
 
-    print(f"Creating branch {branch_name}...")
-    branch = client.create_branch(branch_name)
+    new_schema = f"backup_{_timestamp()}"
+    print(f"Creating backup schema {new_schema}...")
 
-    # Need to wait/fetch for endpoint host?
-    # Usually create_branch returns fast, but endpoint might take a moment or be computable.
-    # The NeonClient.create_branch implementation we just wrote attempts to parse it but defaults to None if missing.
-    # So we should call get_branch_host.
+    with psycopg.connect(neon_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f'CREATE SCHEMA "{new_schema}"')
 
-    print(f"Fetching connection info for {branch.id}...")
-    host = client.get_branch_host(branch.id)
-    print(f"Target host: {host}")
+    print("Starting pg_dump (Supabase) | sed (remap) | psql (Neon) pipeline...")
 
-    # Construct connection string
-    # User must provide password via NEON_DB_PASSWORD env, or we assume something else?
-    # The RUNBOOK mentions creating a restore_user.
-    # If NEON_DB_PASSWORD is not set, this might fail unless .pgpass is used.
-    # We will use the env var if present.
-
-    user = cfg.neon_db_user or os.environ.get(
-        "NEON_DB_USER", "neondb_owner"
-    )  # Default or from env
-    password = cfg.neon_db_password
-
-    if not password:
-        print(
-            "WARNING: NEON_DB_PASSWORD not set (and not found in NEON_DATABASE_URL). pg_restore might fail if authentication is required."
-        )
-
-    # Connection string for pg_restore
-    # postgresql://user:password@host/neondb?sslmode=require
-    # Note: Neon DB name is usually 'neondb'
-
-    target_db_url = f"postgresql://{user}:{password}@{host}/neondb?sslmode=require"
-
-    # Use pg_dump -> pg_restore piping where possible
-    print("Starting pg_dump | pg_restore pipeline...")
-    dump_cmd = ["pg_dump", "--format=custom", "--no-owner", "--no-acl", supabase_url]
-
-    restore_cmd = [
-        "pg_restore",
-        "--dbname",
-        target_db_url,
-        "--no-owner",  # Often good for cloud targets to avoid role errors
+    # We use format=plain to allow sed-based remapping
+    dump_cmd = [
+        "pg_dump",
+        "--format=plain",
+        "--no-owner",
         "--no-acl",
+        "--schema=public",
+        supabase_url,
     ]
 
+    # Sed commands to remap 'public' to the new schema name
+    # 1. Replace "public." with "backup_...".
+    # 2. Replace "search_path = public" with "search_path = backup_...".
+    # 3. Replace "CREATE SCHEMA public" (if any) with new schema.
+    # We use -e multiple times or a script. Let's use multiple -e.
+    sed_cmd = [
+        "sed",
+        "-e",
+        f"s/\\bpublic\\./{new_schema}./g",
+        "-e",
+        f"s/search_path = public/search_path = {new_schema}/g",
+        "-e",
+        f"s/SCHEMA public/SCHEMA {new_schema}/g",
+    ]
+
+    psql_cmd = ["psql", "--dbname", neon_url, "--quiet", "--no-password"]
+
     try:
+        # PGPASSWORD might be needed for psql if not in URL (though it should be)
+        env = os.environ.copy()
+        if cfg.neon_db_password:
+            env["PGPASSWORD"] = cfg.neon_db_password
+
+        # Chain: dump | sed | psql
         dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
-        if dump_proc.stdout is None:
-            raise RuntimeError("Failed to capture pg_dump stdout")
-
-        restore_env = os.environ.copy()
-        if password:
-            restore_env["PGPASSWORD"] = password
-
-        restore_proc = subprocess.Popen(
-            restore_cmd, stdin=dump_proc.stdout, env=restore_env
+        sed_proc = subprocess.Popen(
+            sed_cmd, stdin=dump_proc.stdout, stdout=subprocess.PIPE
         )
-        dump_proc.stdout.close()
+        psql_proc = subprocess.Popen(psql_cmd, stdin=sed_proc.stdout, env=env)
 
-        while restore_proc.poll() is None:
-            # Wait for it
-            pass
+        # Close local handles
+        if dump_proc.stdout:
+            dump_proc.stdout.close()
+        if sed_proc.stdout:
+            sed_proc.stdout.close()
 
-        rc = restore_proc.returncode
-        if rc != 0:
-            raise SystemExit(f"Restore failed with exit code {rc}")
+        psql_proc.wait()
 
-        # Check dump process too
-        drc = dump_proc.wait()
-        if drc != 0:
-            raise SystemExit(f"Dump failed with exit code {drc}")
+        if psql_proc.returncode != 0:
+            raise SystemExit(f"psql failed with exit code {psql_proc.returncode}")
+        if sed_proc.wait() != 0:
+            raise SystemExit(f"sed failed with exit code {sed_proc.returncode}")
+        if dump_proc.wait() != 0:
+            raise SystemExit(f"pg_dump failed with exit code {dump_proc.returncode}")
 
-        print("Backup and restore completed successfully.")
+        print(f"Backup completed successfully in schema {new_schema}.")
 
     finally:
-        # Placeholders for cleanup/metadata logging
-        print(f"backup.branch={branch_name}")
+        print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())
 
 

@@ -13,14 +13,14 @@ def validate_config():
     typer.echo("Configuration format looks good.")
 
     # Proactively check Neon connectivity
-    from .neon import NeonClient
+    import psycopg
 
-    client = NeonClient(api_key=cfg.neon_api_key, project_id=cfg.neon_project_id)
-
-    typer.echo("Checking connection to Neon API...")
+    typer.echo("Checking connection to Neon database...")
     try:
-        client.list_branches()
-        typer.echo("Successfully connected to Neon API.")
+        with psycopg.connect(cfg.neon_database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        typer.echo("Successfully connected to Neon database.")
     except Exception as e:
         typer.echo(f"Connectivity check failed: {e}")
         raise typer.Exit(code=1)

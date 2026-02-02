@@ -25,6 +25,5 @@ jobs:
       - name: Tests
         env:
           SUPABASE_DATABASE_URL: "postgres://user:pass@localhost/db?sslmode=require"
-          NEON_API_KEY: "test"
-          NEON_PROJECT_ID: "test-project"
+          NEON_DATABASE_URL: "postgres://user:pass@localhost/neondb?sslmode=require"
         run: pytest -q
