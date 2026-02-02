@@ -89,11 +89,22 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         print(f"Remapping schema 'public' to '{new_schema}'...")
         REMAPPED_FILE = f"{DUMP_FILE}.remapped"
 
+        SKIP_PREFIXES = (
+            "GRANT ",
+            "REVOKE ",
+            "ALTER DEFAULT PRIVILEGES",
+            "SET ROLE",
+        )
+
         # We replace "public" with the new schema name in the SQL dump.
         # This handles table creation and references.
         with open(DUMP_FILE, "r", encoding="utf-8") as fin:
             with open(REMAPPED_FILE, "w", encoding="utf-8") as fout:
                 for line in fin:
+                    # Skip permission statements
+                    if line.startswith(SKIP_PREFIXES):
+                        continue
+
                     new_line = line.replace('"public"', f'"{new_schema}"')
                     new_line = new_line.replace(" public.", f" {new_schema}.")
                     new_line = new_line.replace("SCHEMA public", f"SCHEMA {new_schema}")
