@@ -2,6 +2,7 @@
 Backup orchestration:
 - Dump Supabase schema (schema-only)
 - Dump Supabase data (data-only)
+- Remap public -> backup_<timestamp>
 - Restore into timestamped Neon schema
 """
 
@@ -11,6 +12,7 @@ import datetime
 import subprocess
 import psycopg
 import os
+import re
 from typing import Optional
 
 from .config import validate_env
@@ -18,6 +20,7 @@ from .config import validate_env
 SCHEMA_DUMP = "schema.sql"
 SCHEMA_REMAPPED = "schema.remapped.sql"
 DATA_DUMP = "data.sql"
+DATA_REMAPPED = "data.remapped.sql"
 
 
 def _timestamp() -> str:
@@ -49,13 +52,12 @@ def delete_schema(conn_url: str, schema_name: str) -> None:
 
 
 # ---------------------------------------------------------------------
-# Schema remapping
+# Schema + Data remapping
 # ---------------------------------------------------------------------
 
 
 def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
     """Robust regex-based schema remapper for PostgreSQL dumps."""
-    import re
 
     SKIP_PREFIXES = (
         "GRANT ",
@@ -75,15 +77,8 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
         "EXTENSION ",
     )
 
-    # Patterns to match:
-    # 1. "public" (quoted schema)
-    # 2. public. (unquoted schema qualifier)
-    # 3. extensions. or "extensions". (Supabase extensions schema)
-
-    # We use regex to ensure we don't catch "public" inside words
-    # but do catch it in sequences like: =public., (public., ,public., "public".
     public_quoted_re = re.compile(r'"public"')
-    public_unquoted_re = re.compile(r"(?<=[\s(=,])public\.(?=[^\s])|^public\.")
+    public_unquoted_re = re.compile(r"(?<!\w)public\.")
     extensions_re = re.compile(r'("extensions"|extensions)\.')
 
     with (
@@ -91,31 +86,32 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
         open(dst, "w", encoding="utf-8") as fout,
     ):
         for line in fin:
-            # Skip Supabase-specific roles and privileges
             if line.startswith(SKIP_PREFIXES) or any(x in line for x in SKIP_CONTAINS):
                 continue
 
-            # Skip schema creation/comments for 'public' as we pre-create the backup schema
             if "SCHEMA public" in line:
                 continue
 
-            # Apply remapping
-            new_line = public_quoted_re.sub(f'"{new_schema}"', line)
-            new_line = public_unquoted_re.sub(f"{new_schema}.", new_line)
+            line = public_quoted_re.sub(f'"{new_schema}"', line)
+            line = public_unquoted_re.sub(f"{new_schema}.", line)
+            line = extensions_re.sub("public.", line)
 
-            # Remap extensions to public (Neon's default location for most compatible extensions)
-            new_line = extensions_re.sub("public.", new_line)
+            line = line.replace("search_path = public", f"search_path = {new_schema}")
+            line = line.replace("extensions.uuid_generate_v4()", "gen_random_uuid()")
+            line = line.replace("'extensions'", f"'{new_schema}'")
 
-            # Handle specific Supabase search_path and UUID cases
-            new_line = new_line.replace(
-                "search_path = public", f"search_path = {new_schema}"
-            )
-            new_line = new_line.replace(
-                "extensions.uuid_generate_v4()", "gen_random_uuid()"
-            )
-            new_line = new_line.replace("'extensions'", f"'{new_schema}'")
+            fout.write(line)
 
-            fout.write(new_line)
+
+def remap_data_file(src: str, dst: str, new_schema: str) -> None:
+    """Rewrite data-only dump so INSERT/COPY target backup schema."""
+    public_re = re.compile(r"(?<!\w)public\.")
+    with (
+        open(src, "r", encoding="utf-8") as fin,
+        open(dst, "w", encoding="utf-8") as fout,
+    ):
+        for line in fin:
+            fout.write(public_re.sub(f"{new_schema}.", line))
 
 
 # ---------------------------------------------------------------------
@@ -148,7 +144,7 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     with psycopg.connect(neon_url) as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
-            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{new_schema.lower()}"')
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{new_schema}"')
             cur.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
 
     try:
@@ -180,7 +176,6 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
                 "pg_dump",
                 "--data-only",
                 "--schema=public",
-                "--disable-triggers",
                 supabase_url,
             ],
             check=True,
@@ -188,10 +183,13 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         )
 
         # ---------------------------
-        # Remap schema
+        # Remap schema + data
         # ---------------------------
         print(f"Remapping schema to {new_schema}...")
         remap_schema_file(SCHEMA_DUMP, SCHEMA_REMAPPED, new_schema)
+
+        print(f"Remapping data to {new_schema}...")
+        remap_data_file(DATA_DUMP, DATA_REMAPPED, new_schema)
 
         # ---------------------------
         # Restore schema
@@ -211,26 +209,31 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         )
 
         # ---------------------------
-        # Restore data (via search_path)
+        # Restore data
         # ---------------------------
         print("Restoring data into Neon...")
 
-        restore_data_sql = f"""
-        SET search_path TO "{new_schema}";
-        \\i {DATA_DUMP}
-        """
-
         subprocess.run(
-            ["psql", neon_url, "-v", "ON_ERROR_STOP=1"],
-            input=restore_data_sql,
-            text=True,
+            [
+                "psql",
+                neon_url,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-f",
+                DATA_REMAPPED,
+            ],
             check=True,
         )
 
         print(f"Backup completed successfully in schema {new_schema}.")
 
     finally:
-        for f in (SCHEMA_DUMP, SCHEMA_REMAPPED, DATA_DUMP):
+        for f in (
+            SCHEMA_DUMP,
+            SCHEMA_REMAPPED,
+            DATA_DUMP,
+            DATA_REMAPPED,
+        ):
             if os.path.exists(f):
                 os.remove(f)
 
