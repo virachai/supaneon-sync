@@ -94,7 +94,6 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "postgresql://",
         ]
 
-
         subprocess.run(dump_cmd, check=True)
 
         # ---------------------------
