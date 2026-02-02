@@ -85,6 +85,9 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
             line = line.replace(
                 '"extensions"."uuid_generate_v4"()', "gen_random_uuid()"
             )
+            line = line.replace("extensions.uuid_generate_v4()", "gen_random_uuid()")
+
+            line = line.replace("extensions", f"{new_schema}")
 
             fout.write(line)
 
