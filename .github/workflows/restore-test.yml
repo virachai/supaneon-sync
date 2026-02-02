@@ -22,11 +22,13 @@ jobs:
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
           NEON_DB_PASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
         run: python -c "from supaneon_sync.config import validate_env; validate_env()"
       - name: Run restore-test
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
           NEON_DB_PASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
         run: python -m supaneon_sync.restore
