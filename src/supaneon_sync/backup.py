@@ -62,12 +62,14 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
         "CREATE POLICY",
         "ALTER POLICY",
         "DROP POLICY",
+        "SET search_path",
     )
 
     SKIP_CONTAINS = (
         "ROW LEVEL SECURITY",
         "TO anon",
         "TO authenticated",
+        "EXTENSION",
     )
 
     with (

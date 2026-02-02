@@ -22,3 +22,8 @@ mypy src tests
 ```bash
 pytest -q
 ```
+
+5. Or Run all
+```bash
+ruff check . && black --check . && mypy src tests && pytest -q
+```
