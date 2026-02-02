@@ -38,5 +38,23 @@ def restore_test():
     restore.run_restore_test()
 
 
+@app.command()
+def enable_uuid_extension(schema: str = typer.Option("public", help="Schema to create the extension in")):
+    """Enable uuid-ossp extension in the specified schema."""
+    import psycopg
+
+    cfg = config.validate_env()
+
+    typer.echo(f"Enabling uuid-ossp extension in schema '{schema}'...")
+    try:
+        with psycopg.connect(cfg.neon_database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(f'CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA {schema}')
+        typer.echo(f"✓ uuid-ossp extension is now available in schema '{schema}'")
+    except Exception as e:
+        typer.echo(f"Failed to enable extension: {e}")
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

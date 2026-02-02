@@ -1,35 +1,19 @@
-"""Backup orchestration: create Neon schema, run pg_dump from Supabase, restore into schema."""
+"""Backup orchestration: create Neon schema, run supabase db dump, and restore into schema."""
 
 from __future__ import annotations
 
 import datetime
 import subprocess
 import os
-import socket
+import re
 import psycopg
 from typing import Optional
-from urllib.parse import urlparse
 
 from .config import validate_env
 
 
 def _timestamp() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
-
-
-def _resolve_to_ipv4(hostname: str) -> Optional[str]:
-    """Resolve hostname to an IPv4 address string."""
-    try:
-        # Resolve hostname to IPv4 address only
-        res = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
-        if res:
-            addr = res[0][4][0]
-            if isinstance(addr, str):
-                return addr
-        return None
-    except (socket.gaierror, IndexError) as e:
-        print(f"WARNING: Could not resolve {hostname} to IPv4: {e}")
-        return None
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
@@ -54,15 +38,7 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     supabase_url = supabase_url or cfg.supabase_database_url
     neon_url = neon_url or cfg.neon_database_url
 
-    # Resolve Supabase hostname to IPv4 to avoid IPv6 connectivity issues
-    parsed_supabase = urlparse(supabase_url)
-    supabase_ipv4 = None
-    if parsed_supabase.hostname:
-        print(f"Resolving Supabase hostname {parsed_supabase.hostname} to IPv4...")
-        supabase_ipv4 = _resolve_to_ipv4(parsed_supabase.hostname)
-
     # Rotation Policy: Max 6 backup schemas.
-    # If we already have >= 6, delete oldest until we have 5.
     backup_schemas = list_backup_schemas(neon_url)
 
     max_schemas = 6
@@ -79,71 +55,55 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
 
     with psycopg.connect(neon_url) as conn:
         with conn.cursor() as cur:
-            cur.execute(f'CREATE SCHEMA "{new_schema}"')
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{new_schema}"')
+            # Ensure uuid-ossp is enabled so uuid_generate_v4() works
+            cur.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA public')
 
-    print("Starting pg_dump (Supabase) | sed (remap) | psql (Neon) pipeline...")
+    print(f"Starting dump from Supabase via CLI...")
 
-    # We use format=plain to allow sed-based remapping
-    dump_cmd = [
-        "pg_dump",
-        "--format=plain",
-        "--no-owner",
-        "--no-acl",
-        "--schema=public",
-        supabase_url,
-    ]
-
-    # Sed commands to remap 'public' to the new schema name
-    # 1. Replace "public." with "backup_...".
-    # 2. Replace "search_path = public" with "search_path = backup_...".
-    # 3. Replace "CREATE SCHEMA public" (if any) with new schema.
-    # We use -e multiple times or a script. Let's use multiple -e.
-    sed_cmd = [
-        "sed",
-        "-e",
-        f"s/\\bpublic\\./{new_schema}./g",
-        "-e",
-        f"s/search_path = public/search_path = {new_schema}/g",
-        "-e",
-        f"s/SCHEMA public/SCHEMA {new_schema}/g",
-    ]
-
-    psql_cmd = ["psql", "--dbname", neon_url, "--quiet", "--no-password"]
+    dump_cmd = ["supabase", "db", "dump", "--db-url", supabase_url, "--schema", "public"]
 
     try:
-        # PGPASSWORD might be needed for psql if not in URL (though it should be)
-        env = os.environ.copy()
-        if cfg.neon_db_password:
-            env["PGPASSWORD"] = cfg.neon_db_password
-
-        # Chain: dump | sed | psql
-        dump_env = os.environ.copy()
-        if supabase_ipv4:
-            dump_env["PGHOSTADDR"] = supabase_ipv4
-
-        dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, env=dump_env)
-        sed_proc = subprocess.Popen(
-            sed_cmd, stdin=dump_proc.stdout, stdout=subprocess.PIPE
+        # Run dump and capture output
+        result = subprocess.run(
+            dump_cmd, capture_output=True, text=True, check=True, encoding="utf-8"
         )
-        psql_proc = subprocess.Popen(psql_cmd, stdin=sed_proc.stdout, env=env)
+        sql_content = result.stdout
 
-        # Close local handles
-        if dump_proc.stdout:
-            dump_proc.stdout.close()
-        if sed_proc.stdout:
-            sed_proc.stdout.close()
+        print(f"Processing and remapping 'public' to '{new_schema}'...")
 
-        psql_proc.wait()
+        # Remap SQL content:
+        # 1. Remove "extensions." prefix (will be found via search_path)
+        # 2. Replace "public." with "backup_..." for tables/sequences
+        # 3. Replace "search_path = public" with "search_path = backup_..., public"
+        # 4. Replace "SCHEMA public" with new schema
 
-        if psql_proc.returncode != 0:
-            raise SystemExit(f"psql failed with exit code {psql_proc.returncode}")
-        if sed_proc.wait() != 0:
-            raise SystemExit(f"sed failed with exit code {sed_proc.returncode}")
-        if dump_proc.wait() != 0:
-            raise SystemExit(f"pg_dump failed with exit code {dump_proc.returncode}")
+        # First: Remove extensions schema prefix - functions will be resolved via search_path
+        sql_content = re.sub(r'"extensions"\.', "", sql_content)
+
+        # Second: Remap public schema references to new backup schema
+        sql_content = re.sub(r"\bpublic\.", f"{new_schema}.", sql_content)
+        sql_content = re.sub(r"search_path = public", f"search_path = {new_schema}, public", sql_content)
+        sql_content = re.sub(r"SCHEMA public", f"SCHEMA {new_schema}", sql_content)
+
+        print(f"Restoring SQL to Neon schema {new_schema}...")
+
+        with psycopg.connect(neon_url) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                # Set search_path first (session-level, will persist)
+                cur.execute(f"SET search_path TO {new_schema}, public")
+                # Execute the processed SQL
+                cur.execute(sql_content)
 
         print(f"Backup completed successfully in schema {new_schema}.")
 
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: supabase db dump failed: {e.stderr}")
+        raise SystemExit(1)
+    except Exception as e:
+        print(f"ERROR during backup: {e}")
+        raise SystemExit(1)
     finally:
         print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())
