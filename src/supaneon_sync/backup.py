@@ -91,19 +91,17 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
 
         # We replace "public" with the new schema name in the SQL dump.
         # This handles table creation and references.
-        # import re
-
-        # Regex to match "public" as a schema qualifier
-        # Matches "public". (with quotes) or public. (without quotes)
-        # and also handles GRANT/USAGE on SCHEMA public
-        # Using a simple but effective replacement for common patterns in pg_dump
         with open(DUMP_FILE, "r", encoding="utf-8") as fin:
             with open(REMAPPED_FILE, "w", encoding="utf-8") as fout:
                 for line in fin:
-                    # Replace "public" schema references
                     new_line = line.replace('"public"', f'"{new_schema}"')
                     new_line = new_line.replace(" public.", f" {new_schema}.")
                     new_line = new_line.replace("SCHEMA public", f"SCHEMA {new_schema}")
+
+                    # Supabase → Neon fix
+                    new_line = new_line.replace("extensions.", "public.")
+                    new_line = new_line.replace('"extensions".', '"public".')
+
                     fout.write(new_line)
 
         # ---------------------------
