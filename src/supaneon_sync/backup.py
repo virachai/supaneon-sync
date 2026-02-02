@@ -54,6 +54,9 @@ def delete_schema(conn_url: str, schema_name: str) -> None:
 
 
 def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
+    """Robust regex-based schema remapper for PostgreSQL dumps."""
+    import re
+
     SKIP_PREFIXES = (
         "GRANT ",
         "REVOKE ",
@@ -68,45 +71,51 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
         "ROW LEVEL SECURITY",
         "TO anon",
         "TO authenticated",
+        "TO service_role",
+        "EXTENSION ",
     )
+
+    # Patterns to match:
+    # 1. "public" (quoted schema)
+    # 2. public. (unquoted schema qualifier)
+    # 3. extensions. or "extensions". (Supabase extensions schema)
+
+    # We use regex to ensure we don't catch "public" inside words
+    # but do catch it in sequences like: =public., (public., ,public., "public".
+    public_quoted_re = re.compile(r'"public"')
+    public_unquoted_re = re.compile(r"(?<=[\s(=,])public\.(?=[^\s])|^public\.")
+    extensions_re = re.compile(r'("extensions"|extensions)\.')
 
     with (
         open(src, "r", encoding="utf-8") as fin,
         open(dst, "w", encoding="utf-8") as fout,
     ):
-
         for line in fin:
+            # Skip Supabase-specific roles and privileges
             if line.startswith(SKIP_PREFIXES) or any(x in line for x in SKIP_CONTAINS):
                 continue
 
-            # Core remapping logic
-            # Handle quoted "public"
-            line = line.replace('"public"', f'"{new_schema}"')
+            # Skip schema creation/comments for 'public' as we pre-create the backup schema
+            if "SCHEMA public" in line:
+                continue
 
-            # Handle unquoted public. with various prefixes
-            for prefix in (" ", "(", "=", ",", "ON "):
-                line = line.replace(f"{prefix}public.", f"{prefix}{new_schema}.")
+            # Apply remapping
+            new_line = public_quoted_re.sub(f'"{new_schema}"', line)
+            new_line = public_unquoted_re.sub(f"{new_schema}.", new_line)
 
-            # Case where public. starts the line
-            if line.startswith("public."):
-                line = f"{new_schema}." + line[7:]
+            # Remap extensions to public (Neon's default location for most compatible extensions)
+            new_line = extensions_re.sub("public.", new_line)
 
-            # Handle schema creation
-            line = line.replace("SCHEMA public", f"SCHEMA {new_schema}")
-            # Handle search_path
-            line = line.replace("search_path = public", f"search_path = {new_schema}")
+            # Handle specific Supabase search_path and UUID cases
+            new_line = new_line.replace(
+                "search_path = public", f"search_path = {new_schema}"
+            )
+            new_line = new_line.replace(
+                "extensions.uuid_generate_v4()", "gen_random_uuid()"
+            )
+            new_line = new_line.replace("'extensions'", f"'{new_schema}'")
 
-            # Remap extensions to public (Neon's default)
-            line = line.replace("extensions.", "public.")
-            line = line.replace('"extensions".', '"public".')
-            line = line.replace(
-                "'extensions", f"'{new_schema}"
-            )  # Used in some defaults
-
-            # Replace Supabase extension UUID calls
-            line = line.replace("extensions.uuid_generate_v4()", "gen_random_uuid()")
-
-            fout.write(line)
+            fout.write(new_line)
 
 
 # ---------------------------------------------------------------------
