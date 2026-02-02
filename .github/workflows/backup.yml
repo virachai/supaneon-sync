@@ -14,8 +14,10 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
-      - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
       - name: Install Supabase CLI
         run: |
           curl -fsSL https://cli.supabase.com/install.sh | sh
