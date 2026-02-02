@@ -65,7 +65,9 @@ def validate_env() -> Config:
     except Exception:
         pass
 
-    mongodb_tls_allow_invalid_certs = os.environ.get("MONGODB_TLS_ALLOW_INVALID_CERTS", "false").lower() == "true"
+    mongodb_tls_allow_invalid_certs = (
+        os.environ.get("MONGODB_TLS_ALLOW_INVALID_CERTS", "false").lower() == "true"
+    )
 
     return Config(
         mongodb_srv_url=mongodb_url,

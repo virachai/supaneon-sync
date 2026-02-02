@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import psycopg
 import pymongo  # type: ignore
 import certifi  # type: ignore
