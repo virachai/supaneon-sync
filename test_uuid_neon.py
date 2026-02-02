@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 neon_url = os.environ.get("NEON_DATABASE_URL")
-print(f"Testing UUID function in Neon...")
+print("Testing UUID function in Neon...")
 
 try:
     with psycopg.connect(neon_url) as conn:
@@ -32,7 +32,9 @@ try:
             """)
             func_result = cur.fetchone()
             if func_result:
-                print(f"✓ Function 'uuid_generate_v4' found in schema: {func_result[0]}")
+                print(
+                    f"✓ Function 'uuid_generate_v4' found in schema: {func_result[0]}"
+                )
             else:
                 print("✗ Function 'uuid_generate_v4' NOT found")
 

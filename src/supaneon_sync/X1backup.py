@@ -81,7 +81,7 @@
 
 #         # First: Remove extensions schema prefix - functions will be resolved via search_path
 #         sql_content = re.sub(r'"?extensions"?\.', "", sql_content)
-        
+
 #         # Second: Fix search_path clearing if present
 #         sql_content = re.sub(
 #             r"SELECT pg_catalog\.set_config\('search_path', '', false\);",
@@ -92,13 +92,13 @@
 #         # Third: Remap public schema references to new backup schema
 #         # 3.1: Remap table/sequence prefixes: public. or "public".
 #         sql_content = re.sub(r'"?public"?\.', f'"{new_schema}".', sql_content)
-        
+
 #         # 3.2: Remap search_path settings
 #         sql_content = re.sub(r'\bsearch_path\s*=\s*"?public"?', f'search_path = "{new_schema}", public', sql_content)
-        
+
 #         # 3.3: Remap schema definitions and permissions
 #         sql_content = re.sub(r'\bSCHEMA\s+"?public"?', f'SCHEMA "{new_schema}"', sql_content, flags=re.IGNORECASE)
-        
+
 #         # 3.4: Remap any remaining "public" to the new schema in specific contexts
 #         sql_content = re.sub(r'\bON\s+SCHEMA\s+"?public"?', f'ON SCHEMA "{new_schema}"', sql_content, flags=re.IGNORECASE)
 #         sql_content = re.sub(r'\bCOMMENT\s+ON\s+SCHEMA\s+"?public"?', f'COMMENT ON SCHEMA "{new_schema}"', sql_content, flags=re.IGNORECASE)
@@ -106,9 +106,9 @@
 #         # Fourth: Remap Supabase roles to Neon database user
 #         if cfg.neon_db_user:
 #             roles_to_remap = [
-#                 "postgres", "anon", "authenticated", "service_role", 
-#                 "supabase_admin", "supabase_auth_admin", "supabase_storage_admin", 
-#                 "supabase_functions_admin", "dashboard_user", "authenticator", 
+#                 "postgres", "anon", "authenticated", "service_role",
+#                 "supabase_admin", "supabase_auth_admin", "supabase_storage_admin",
+#                 "supabase_functions_admin", "dashboard_user", "authenticator",
 #                 "pgbouncer", "backup_user"
 #             ]
 #             for role in roles_to_remap:
@@ -116,9 +116,9 @@
 #                 # This pattern matches TO "role", TO role, OWNER TO "role", etc.
 #                 # It ensures that if there's a starting quote, it matches the ending quote too.
 #                 sql_content = re.sub(
-#                     rf'\b(TO|FROM|OWNER TO|BY|FOR ROLE)\s+(?:"{role}"|{role})\b', 
-#                     rf'\1 "{cfg.neon_db_user}"', 
-#                     sql_content, 
+#                     rf'\b(TO|FROM|OWNER TO|BY|FOR ROLE)\s+(?:"{role}"|{role})\b',
+#                     rf'\1 "{cfg.neon_db_user}"',
+#                     sql_content,
 #                     flags=re.IGNORECASE
 #                 )
 

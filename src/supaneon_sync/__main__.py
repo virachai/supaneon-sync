@@ -39,7 +39,9 @@ def restore_test():
 
 
 @app.command()
-def enable_uuid_extension(schema: str = typer.Option("public", help="Schema to create the extension in")):
+def enable_uuid_extension(
+    schema: str = typer.Option("public", help="Schema to create the extension in")
+):
     """Enable uuid-ossp extension in the specified schema."""
     import psycopg
 
@@ -49,7 +51,9 @@ def enable_uuid_extension(schema: str = typer.Option("public", help="Schema to c
     try:
         with psycopg.connect(cfg.neon_database_url) as conn:
             with conn.cursor() as cur:
-                cur.execute(f'CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA {schema}')
+                cur.execute(
+                    f'CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA {schema}'
+                )
         typer.echo(f"✓ uuid-ossp extension is now available in schema '{schema}'")
     except Exception as e:
         typer.echo(f"Failed to enable extension: {e}")

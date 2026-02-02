@@ -10,7 +10,6 @@ from typing import Optional
 
 from .config import validate_env
 
-
 DUMP_FILE = "supabase.dump"
 
 
@@ -21,14 +20,12 @@ def _timestamp() -> str:
 def list_backup_schemas(conn_url: str) -> list[str]:
     with psycopg.connect(conn_url) as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
+            cur.execute("""
                 SELECT schema_name
                 FROM information_schema.schemata
                 WHERE schema_name LIKE 'backup_%'
                 ORDER BY schema_name ASC
-                """
-            )
+                """)
             return [row[0] for row in cur.fetchall()]
 
 
@@ -79,7 +76,8 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "--schema=public",
             "--no-owner",
             "--no-privileges",
-            "--file", DUMP_FILE,
+            "--file",
+            DUMP_FILE,
             supabase_url,
         ]
 
@@ -94,8 +92,10 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "pg_restore",
             "--no-owner",
             "--no-privileges",
-            "--schema", new_schema,
-            "--dbname", neon_url,
+            "--schema",
+            new_schema,
+            "--dbname",
+            neon_url,
             DUMP_FILE,
         ]
 
