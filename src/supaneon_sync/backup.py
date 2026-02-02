@@ -21,7 +21,7 @@ DATA_DUMP = "data.sql"
 
 
 def _timestamp() -> str:
-    return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ").lower()
 
 
 # ---------------------------------------------------------------------
@@ -79,12 +79,32 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
             if line.startswith(SKIP_PREFIXES) or any(x in line for x in SKIP_CONTAINS):
                 continue
 
-            line = line.replace("public", f"{new_schema}")
+            # Core remapping logic
+            # Handle quoted "public"
+            line = line.replace('"public"', f'"{new_schema}"')
+
+            # Handle unquoted public. with various prefixes
+            for prefix in (" ", "(", "=", ",", "ON "):
+                line = line.replace(f"{prefix}public.", f"{prefix}{new_schema}.")
+
+            # Case where public. starts the line
+            if line.startswith("public."):
+                line = f"{new_schema}." + line[7:]
+
+            # Handle schema creation
+            line = line.replace("SCHEMA public", f"SCHEMA {new_schema}")
+            # Handle search_path
+            line = line.replace("search_path = public", f"search_path = {new_schema}")
+
+            # Remap extensions to public (Neon's default)
+            line = line.replace("extensions.", "public.")
+            line = line.replace('"extensions".', '"public".')
+            line = line.replace(
+                "'extensions", f"'{new_schema}"
+            )  # Used in some defaults
 
             # Replace Supabase extension UUID calls
             line = line.replace("extensions.uuid_generate_v4()", "gen_random_uuid()")
-
-            line = line.replace("extensions", f"{new_schema}")
 
             fout.write(line)
 
@@ -110,7 +130,7 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         print(f"Rotation: deleting old schema {oldest}...")
         delete_schema(neon_url, oldest)
 
-    new_schema = f"backup_{_timestamp()}"
+    new_schema = f"backup_{_timestamp()}".lower()
     print(f"Creating backup schema {new_schema}...")
 
     # ---------------------------
@@ -119,7 +139,7 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     with psycopg.connect(neon_url) as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
-            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{new_schema}"')
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{new_schema.lower()}"')
             cur.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
 
     try:
