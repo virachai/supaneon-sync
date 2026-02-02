@@ -35,12 +35,12 @@ def run_restore_test():
     print(f"Test branch host: {host}")
 
     # Construct DB URL
-    user = os.environ.get("NEON_DB_USER", "neondb_owner")
+    user = cfg.neon_db_user or os.environ.get("NEON_DB_USER", "neondb_owner")
     password = cfg.neon_db_password
 
     # For healthchecks, we need a valid connection.
     if not password:
-        print("WARNING: NEON_DB_PASSWORD not set. Healthcheck might fail.")
+        print("WARNING: NEON_DB_PASSWORD not set (and not found in NEON_DATABASE_URL). Healthcheck might fail.")
 
     db_url = f"postgresql://{user}:{password}@{host}/neondb?sslmode=require"
 

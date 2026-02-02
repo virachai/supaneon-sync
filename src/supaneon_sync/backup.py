@@ -58,12 +58,12 @@ def run(supabase_url: Optional[str] = None, neon_api_key: Optional[str] = None):
     # If NEON_DB_PASSWORD is not set, this might fail unless .pgpass is used.
     # We will use the env var if present.
 
-    user = os.environ.get("NEON_DB_USER", "neondb_owner")  # Default or from env
+    user = cfg.neon_db_user or os.environ.get("NEON_DB_USER", "neondb_owner")  # Default or from env
     password = cfg.neon_db_password
 
     if not password:
         print(
-            "WARNING: NEON_DB_PASSWORD not set. pg_restore might fail if authentication is required."
+            "WARNING: NEON_DB_PASSWORD not set (and not found in NEON_DATABASE_URL). pg_restore might fail if authentication is required."
         )
 
     # Connection string for pg_restore
