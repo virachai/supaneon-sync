@@ -10,3 +10,5 @@ thumbs.db
 .idea
 .venv/
 .env
+node_modules
+*.sql
