@@ -85,6 +85,15 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
             line = line.replace("SCHEMA public", f"SCHEMA {new_schema}")
             line = line.replace("'public.", f"'{new_schema}.")
 
+            # schema / table refs
+            line = line.replace('"public"', f'"{new_schema}"')
+            line = line.replace("SCHEMA public", f"SCHEMA {new_schema}")
+            line = line.replace("'public.", f"'{new_schema}.")
+
+            # Supabase → Neon
+            line = line.replace("extensions.", "public.")
+            line = line.replace('"extensions".', '"public".')
+
             fout.write(line)
 
 
