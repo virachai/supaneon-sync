@@ -79,7 +79,7 @@ def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
             if line.startswith(SKIP_PREFIXES) or any(x in line for x in SKIP_CONTAINS):
                 continue
 
-            line = line.replace('public', f'{new_schema}')
+            line = line.replace("public", f"{new_schema}")
 
             # Replace Supabase extension UUID calls
             line = line.replace("extensions.uuid_generate_v4()", "gen_random_uuid()")
