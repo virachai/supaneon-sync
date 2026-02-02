@@ -16,15 +16,19 @@ jobs:
           python-version: "3.11"
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install Supabase CLI
+        run: |
+          curl -fsSL https://cli.supabase.com/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -e .[dev]
       - name: Validate config
         env:
-          MONGODB_SRV_URL: ${{ secrets.MONGODB_SRV_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
         run: python -c "from supaneon_sync.config import validate_env; validate_env()"
       - name: Run restore-test
         env:
-          MONGODB_SRV_URL: ${{ secrets.MONGODB_SRV_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
         run: python -m supaneon_sync.restore

@@ -1,34 +1,34 @@
 # supaneon-sync
 
-**Production-grade MongoDB to Neon logical backup and disaster recovery automation.**
+**Production-grade Supabase to Neon logical backup and disaster recovery automation.**
 
-`supaneon-sync` is a security-first tool designed to automate logical backups from a primary MongoDB database to a standby Neon (PostgreSQL) database. Collections are stored as JSONB tables, ensuring you have an always-ready, verifiable failover target.
+`supaneon-sync` is a security-first tool designed to automate logical backups from a primary Supabase (PostgreSQL) database to a standby Neon (PostgreSQL) database. Schemas are replicated into timestamped Neon schemas, ensuring you have an always-ready, verifiable failover target.
 
 ---
 
 ## 🚀 Key Features
 
-*   **MongoDB to Postgres Sync**: Automatically migrates MongoDB collections to PostgreSQL JSONB tables.
-*   **Immutable Backups**: Creates timestamped, copy-on-write Neon branches (`backup-YYYYMMDDTHHMMSSZ`) that are never modified.
-*   **Verifiable Reliability**: Includes automated **restore testing** that validates backups by restoring them to a temporary branch and running integrity checks.
-*   **Cross-DB Compatibility**: Stores flexible MongoDB documents in PostgreSQL's powerful JSONB format.
+*   **Supabase to Neon Sync**: Automatically dumps Supabase database and restores to timestamped Neon schemas.
+*   **Immutable Backups**: Creates timestamped schemas (`backup_YYYYMMDDTHHMMSSZ`) that are never modified.
+*   **Verifiable Reliability**: Includes automated **restore testing** that validates backups by running integrity checks.
+*   **Schema Transformation**: Automatically remaps Supabase roles and schemas to work in Neon.
 *   **Stateless**: Runs as a CLI or GitHub Action; no long-running servers or daemons required.
 
 ## 🛠️ Architecture
 
 The system follows a layered architecture to ensure reliability and security:
 
-1.  **Backup**: Connects to MongoDB, fetches all collections from the specified database, and stores them as JSONB in a fresh Neon branch.
-2.  **Branching Strategy**:
-    *   `main`: Stable standby, never touched by automated restores.
-    *   `backup-...`: Read-only snapshots of your database at specific points in time.
-    *   `restore-test-...`: Ephemeral branches used solely to verify backup integrity.
-3.  **Security Transforms**: Automatically redacts connection strings from logs and enforces SSL on destination connections.
+1.  **Backup**: Uses Supabase CLI to dump the database, transforms SQL to remap schemas and roles, then restores into a timestamped Neon schema.
+2.  **Schema Strategy**:
+    *   `public`: Default Neon schema for application use.
+    *   `backup_YYYYMMDDTHHMMSSZ`: Timestamped backup schemas, rotated to keep the 6 most recent.
+3.  **Security Transforms**: Automatically redacts connection strings from logs and enforces SSL on both source and destination connections.
 
 ## 📋 Prerequisites
 
 *   Python 3.11+
-*   A **MongoDB** cluster (Primary).
+*   **Supabase CLI** installed and configured
+*   A **Supabase** project (Primary).
 *   A **Neon** project (Standby/Backup target).
 
 ## 📦 Installation
@@ -53,10 +53,10 @@ The tool relies entirely on environment variables:
 
 | Variable | Description | Required |
 | :--- | :--- | :---: |
-| `MONGODB_SRV_URL` | Connection string for your MongoDB database. | ✅ |
-| `NEON_API_KEY` | Your Neon API Key for managing branches. | ✅ |
-| `NEON_PROJECT_ID` | The ID of the Neon project to use as the destination. | ✅ |
+| `SUPABASE_DATABASE_URL` | Connection string for your Supabase database. Must include `sslmode=require`. | ✅ |
 | `NEON_DATABASE_URL` | Connection string for your Neon database. Must include `sslmode=require`. | ✅ |
+| `NEON_API_KEY` | Your Neon API Key for managing branches (optional). | ❌ |
+| `NEON_PROJECT_ID` | The ID of the Neon project to use as the destination (optional). | ❌ |
 
 ## 💻 Usage
 
@@ -70,7 +70,7 @@ supaneon-sync validate-config
 ```
 
 ### 2. Run Backup
-Fetches MongoDB collections and stores them in a new Neon branch.
+Dumps Supabase database and restores it into a timestamped Neon schema.
 
 ```bash
 supaneon-sync backup-run
@@ -88,7 +88,7 @@ supaneon-sync restore-test
 *   **`backup.yml`**: Runs daily at 02:00 UTC.
 *   **`restore-test.yml`**: Runs daily at 03:30 UTC.
 
-To enable these, add your `MONGODB_SRV_URL`, `NEON_API_KEY`, etc., to your GitHub Repository Secrets.
+To enable these, add your `SUPABASE_DATABASE_URL`, `NEON_DATABASE_URL`, etc., to your GitHub Repository Secrets.
 
 ## 📄 License
 

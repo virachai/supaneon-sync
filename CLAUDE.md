@@ -4,18 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## System Overview
 
-**supaneon-sync** is a production-grade, security-first database backup and disaster recovery system that automates logical backups from MongoDB (primary) to Neon (standby).
+**supaneon-sync** is a production-grade, security-first database backup and disaster recovery system that automates logical backups from Supabase (primary) to Neon (standby).
 
 **Technology Stack:**
 - Python 3.11+
 - Typer CLI framework
 - GitHub Actions (cron + manual triggers)
-- MongoDB / pymongo
-- Neon branching (copy-on-write)
+- Supabase CLI for pg_dump
+- Neon PostgreSQL (timestamped schemas)
 
 **Primary Objectives:**
-- Prevent MongoDB data loss
-- Maintain an always-ready standby database in Postgres (JSONB)
+- Prevent Supabase data loss
+- Maintain an always-ready standby database in Neon with timestamped schemas
 - Enable verifiable backups through automated restore testing
 - Operate entirely on free tiers
 
@@ -45,7 +45,7 @@ mypy src
 # Validate environment configuration
 supaneon-sync validate-config
 
-# Run backup from MongoDB to Neon branch
+# Run backup from Supabase to Neon schema
 supaneon-sync backup-run
 
 # Run restore test using latest backup
@@ -61,16 +61,17 @@ The codebase follows a layered architecture with clear separation of concerns:
 
 ### Config Layer
 - **[config.py](src/supaneon_sync/config.py)** - Environment validation
-  - Validates required environment variables (`MONGODB_SRV_URL`, `NEON_DATABASE_URL`)
-  - Enforces `sslmode=require` on Neon connections
+  - Validates required environment variables (`SUPABASE_DATABASE_URL`, `NEON_DATABASE_URL`)
+  - Enforces `sslmode=require` on both Supabase and Neon connections
   - Returns `Config` dataclass
 
 ### Service Layer
 - **[neon.py](src/supaneon_sync/neon.py)** - Neon API client for branch management
   - `create_branch()`, `delete_branch()`, `list_branches()`
 - **[backup.py](src/supaneon_sync/backup.py)** - Backup orchestration
-  - Fetches collections from MongoDB
-  - Stores them as JSONB tables in PostgreSQL timestamped branches
+  - Dumps Supabase database using `supabase db dump` CLI
+  - Transforms SQL to remap schemas and roles
+  - Restores into timestamped Neon schemas
 - **[restore.py](src/supaneon_sync/restore.py)** - Restore testing orchestration
   - Creates temporary test branches
   - Runs healthchecks on JSONB tables
@@ -78,7 +79,7 @@ The codebase follows a layered architecture with clear separation of concerns:
 ### Validation Layer
 - **[healthcheck.py](src/supaneon_sync/healthcheck.py)** - Smoke test suite
   - Database connectivity tests
-  - JSONB table/column existence validation
+  - Schema and table existence validation
 
 ## Architectural Principles
 
@@ -91,7 +92,7 @@ The codebase follows a layered architecture with clear separation of concerns:
 ## Security Requirements
 
 - **No secrets in code or logs** - All credentials via environment variables only
-- **Enforce TLS on destination** - `NEON_DATABASE_URL` must include `sslmode=require`
+- **Enforce TLS on all connections** - Both `SUPABASE_DATABASE_URL` and `NEON_DATABASE_URL` must include `sslmode=require`
 - **Credential Redaction** - `utils.py` automatically redacts sensitive URLs from logs
 
 ## Environment Variables
@@ -99,13 +100,13 @@ The codebase follows a layered architecture with clear separation of concerns:
 Required environment variables:
 
 ```bash
-# MongoDB connection URL
-MONGODB_SRV_URL="mongodb+srv://user:pass@host/db"
-
-# Neon API key and project ID
-NEON_API_KEY="your-neon-api-key"
-NEON_PROJECT_ID="your-project-id"
+# Supabase database URL (MUST include sslmode=require)
+SUPABASE_DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"
 
 # Neon database URL (MUST include sslmode=require)
 NEON_DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"
+
+# Optional: Neon API key and project ID for branch management
+NEON_API_KEY="your-neon-api-key"
+NEON_PROJECT_ID="your-project-id"
 ```

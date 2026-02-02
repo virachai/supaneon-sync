@@ -1,4 +1,4 @@
-"""Backup orchestration: create Neon schema, run supabase db dump, and restore into schema."""
+"""Backup orchestration: dump Supabase database and restore into timestamped Neon schema."""
 
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ def delete_schema(conn_url: str, schema_name: str) -> None:
             cur.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
 
 
-def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
+def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     cfg = validate_env()
-    mongodb_url = mongodb_url or cfg.mongodb_srv_url
+    supabase_url = supabase_url or cfg.supabase_database_url
     neon_url = neon_url or cfg.neon_database_url
 
     # Rotation Policy: Max 6 backup schemas.
@@ -61,7 +61,7 @@ def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
 
     print(f"Starting dump from Supabase via CLI...")
 
-    dump_cmd = ["supabase", "db", "dump", "--db-url", supabase_url, "--schema", "public"]
+    dump_cmd = ["supabase", "db", "dump", "--db-url", cfg.supabase_database_url, "--schema", "public"]
 
     try:
         # Run dump and capture output
@@ -74,25 +74,79 @@ def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
 
         # Remap SQL content:
         # 1. Remove "extensions." prefix (will be found via search_path)
-        # 2. Replace "public." with "backup_..." for tables/sequences
-        # 3. Replace "search_path = public" with "search_path = backup_..., public"
-        # 4. Replace "SCHEMA public" with new schema
+        # 2. Replace the search_path clearing line that pg_dump usually includes
+        # 3. Replace "public." with "backup_..." for tables/sequences
+        # 4. Replace "search_path = public" with "search_path = backup_..., public"
+        # 5. Replace "SCHEMA public" with new schema
 
         # First: Remove extensions schema prefix - functions will be resolved via search_path
-        sql_content = re.sub(r'"extensions"\.', "", sql_content)
+        sql_content = re.sub(r'"?extensions"?\.', "", sql_content)
+        
+        # Second: Fix search_path clearing if present
+        sql_content = re.sub(
+            r"SELECT pg_catalog\.set_config\('search_path', '', false\);",
+            f'SET search_path TO "{new_schema}", public, extensions;',
+            sql_content
+        )
 
-        # Second: Remap public schema references to new backup schema
-        sql_content = re.sub(r"\bpublic\.", f"{new_schema}.", sql_content)
-        sql_content = re.sub(r"search_path = public", f"search_path = {new_schema}, public", sql_content)
-        sql_content = re.sub(r"SCHEMA public", f"SCHEMA {new_schema}", sql_content)
+        # Third: Remap public schema references to new backup schema
+        # 3.1: Remap table/sequence prefixes: public. or "public".
+        sql_content = re.sub(r'"?public"?\.', f'"{new_schema}".', sql_content)
+        
+        # 3.2: Remap search_path settings
+        sql_content = re.sub(r'\bsearch_path\s*=\s*"?public"?', f'search_path = "{new_schema}", public', sql_content)
+        
+        # 3.3: Remap schema definitions and permissions
+        sql_content = re.sub(r'\bSCHEMA\s+"?public"?', f'SCHEMA "{new_schema}"', sql_content, flags=re.IGNORECASE)
+        
+        # 3.4: Remap any remaining "public" to the new schema in specific contexts
+        sql_content = re.sub(r'\bON\s+SCHEMA\s+"?public"?', f'ON SCHEMA "{new_schema}"', sql_content, flags=re.IGNORECASE)
+        sql_content = re.sub(r'\bCOMMENT\s+ON\s+SCHEMA\s+"?public"?', f'COMMENT ON SCHEMA "{new_schema}"', sql_content, flags=re.IGNORECASE)
+
+        # Fourth: Remap Supabase roles to Neon database user
+        if cfg.neon_db_user:
+            roles_to_remap = [
+                "postgres", "anon", "authenticated", "service_role", 
+                "supabase_admin", "supabase_auth_admin", "supabase_storage_admin", 
+                "supabase_functions_admin", "dashboard_user", "authenticator", 
+                "pgbouncer", "backup_user"
+            ]
+            for role in roles_to_remap:
+                # Replace context-sensitive roles with the Neon user
+                # This pattern matches TO "role", TO role, OWNER TO "role", etc.
+                # It ensures that if there's a starting quote, it matches the ending quote too.
+                sql_content = re.sub(
+                    rf'\b(TO|FROM|OWNER TO|BY|FOR ROLE)\s+(?:"{role}"|{role})\b', 
+                    rf'\1 "{cfg.neon_db_user}"', 
+                    sql_content, 
+                    flags=re.IGNORECASE
+                )
+
+        # Fifth: Comment out Supabase-specific extensions and commands
+        supabase_specifics = [
+            r'CREATE EXTENSION IF NOT EXISTS "pg_graphql"',
+            r'CREATE EXTENSION IF NOT EXISTS "pg_stat_statements"',
+            r'CREATE EXTENSION IF NOT EXISTS "supabase_vault"',
+            r'COMMENT ON EXTENSION "pg_graphql"',
+            r'COMMENT ON EXTENSION "pg_stat_statements"',
+            r'COMMENT ON EXTENSION "supabase_vault"',
+            r'ALTER PUBLICATION "supabase_realtime"',
+            r'SELECT pg_catalog\.set_config\(\'search_path\', \'extensions, public\', false\);'
+        ]
+        for pattern in supabase_specifics:
+            sql_content = re.sub(rf'^{pattern}.*$', r'-- \g<0>', sql_content, flags=re.MULTILINE | re.IGNORECASE)
+
+        # Debug: Write processed SQL to a file for inspection
+        with open("debug_dump.sql", "w", encoding="utf-8") as f:
+            f.write(sql_content)
 
         print(f"Restoring SQL to Neon schema {new_schema}...")
 
         with psycopg.connect(neon_url) as conn:
             conn.autocommit = True
             with conn.cursor() as cur:
-                # Set search_path first (session-level, will persist)
-                cur.execute(f"SET search_path TO {new_schema}, public")
+                # Set search_path first (session-level, will persist if not overridden by the SQL)
+                cur.execute(f'SET search_path TO "{new_schema}", public, extensions')
                 # Execute the processed SQL
                 cur.execute(sql_content)
 
@@ -105,7 +159,6 @@ def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
         print(f"ERROR during backup: {e}")
         raise SystemExit(1)
     finally:
-        client.close()
         print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())
 

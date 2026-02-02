@@ -8,8 +8,8 @@ This document outlines the operational procedures for managing the `supaneon-syn
 
 To follow the principle of least privilege, create dedicated roles for backup and restore operations instead of using the superuser.
 
-### 1. MongoDB Access (Primary)
-Ensure the `MONGODB_SRV_URL` provides a user with at least `read` privileges on all collections in the target database.
+### 1. Supabase Access (Primary)
+Ensure the `SUPABASE_DATABASE_URL` provides a user with at least `read` privileges on all tables in the target database. This is used by the Supabase CLI to dump the database.
 
 ### 2. Create `restore_user` (Recovery Database)
 Run this on your **Neon** (Standby) database if you plan to use a restricted user for testing restores.
@@ -26,31 +26,31 @@ GRANT CREATE ON SCHEMA public TO restore_user;
 
 ## 🚨 Disaster Recovery (Failover)
 
-**Scenario:** MongoDB (Primary) is down or inaccessible, and you need to query the backup in Neon (Standby).
+**Scenario:** Supabase (Primary) is down or inaccessible, and you need to query the backup in Neon (Standby).
 
 ### 1. Identify the Latest Healthy Backup
-Since backups are timestamped branches, find the most recent one.
+Since backups are timestamped schemas, find the most recent one.
 
 **Via CLI (Local):**
 ```bash
-# This command automatically finds the latest branch starting with 'backup-'
+# This command automatically finds the latest schema starting with 'backup_'
 supaneon-sync config  # Check env first
-python -m supaneon_sync.neon list-branches
+# Connect to Neon and query schemas
 ```
 
-**Via Neon Console:**
-1. Log in to the [Neon Console](https://console.neon.tech).
-2. Go to **Branches**.
-3. Look for the most recent branch named `backup-YYYYMMDDTHHMMSSZ`.
+**Via Neon Console or SQL Client:**
+1. Connect to your Neon database.
+2. Run: `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'backup_%' ORDER BY schema_name DESC LIMIT 1;`
+3. Look for the most recent schema named `backup_YYYYMMDDTHHMMSSZ`.
 
 ### 2. Verify Operation (Optional but Recommended)
-Before switching traffic, ensure the branch works.
-1. Connect via a SQL client using the branch's connection string.
-2. Run a query: `SELECT * FROM "your_collection" LIMIT 1;`
-3. Note that the data is stored in the `data` column as `JSONB`.
+Before switching traffic, ensure the backup schema works.
+1. Connect via a SQL client using Neon's connection string.
+2. Run a query: `SELECT * FROM backup_YYYYMMDDTHHMMSSZ.your_table LIMIT 1;`
+3. The backup contains full table structures from Supabase.
 
 ### 3. Application Access
-Update your application's logic or environment variable to point to the Neon branch. Since the data is in Postgres, you will need to use a Postgres driver and queries that access the JSONB data.
+Update your application's logic or environment variable to point to the Neon backup schema. Since both Supabase and Neon are PostgreSQL, your existing queries should work with minimal changes (just update the schema prefix).
 
 ---
 
@@ -65,8 +65,8 @@ If you suspect an issue or are about to make risky changes, trigger a backup man
 
 **Via CLI:**
 ```bash
-export MONGODB_SRV_URL="..."
-export NEON_API_KEY="..."
+export SUPABASE_DATABASE_URL="..."
+export NEON_DATABASE_URL="..."
 supaneon-sync backup-run
 ```
 
@@ -84,30 +84,36 @@ supaneon-sync restore-test
 
 ### "Backup Failed" Notification
 **Common Causes:**
-1.  **MongoDB Connection Issues:**
-    *   Check `MONGODB_SRV_URL`. Ensure the cluster is accessible.
-2.  **Neon API Limits:**
-    *   Free tier project limit reached? (Max branches?).
+1.  **Supabase Connection Issues:**
+    *   Check `SUPABASE_DATABASE_URL`. Ensure the database is accessible.
+    *   Verify Supabase CLI is installed and configured.
+2.  **Neon Connection Issues:**
+    *   Check `NEON_DATABASE_URL` and ensure SSL mode is set correctly.
 3.  **Authentication:**
-    *   Check if `NEON_API_KEY` or `MONGODB_SRV_URL` credentials are valid.
+    *   Check if `SUPABASE_DATABASE_URL` and `NEON_DATABASE_URL` credentials are valid.
+4.  **Schema Limits:**
+    *   Check if Neon has schema or storage limits reached.
 
 ### "Restore Test Failed" Notification
 **Investigation:**
 1.  Inspect the logs to see if it was a *connectivity* error or a schema verification failure.
-2.  Check for the presence of the `data` column in the created tables.
+2.  Check if the backup schema exists and contains the expected tables.
+3.  Verify that schema transformations (role remapping, extensions) completed successfully.
 
 ---
 
 ## 🔐 Maintenance
 
 ### Rotating Credentials
-1.  **MongoDB Password Change:**
-    *   Update `MONGODB_SRV_URL` in GitHub Secrets immediately.
-2.  **Neon API Key Rotation:**
+1.  **Supabase Password Change:**
+    *   Update `SUPABASE_DATABASE_URL` in GitHub Secrets immediately.
+2.  **Neon Password Change:**
+    *   Update `NEON_DATABASE_URL` in GitHub Secrets immediately.
+3.  **Neon API Key Rotation (if used):**
     *   Generate a new key in the Neon Console and update `NEON_API_KEY` in GitHub Secrets.
 
 ---
 
 ## 📞 Escalation
-*   **MongoDB Status:** [status.mongodb.com](https://status.mongodb.com/)
+*   **Supabase Status:** [status.supabase.com](https://status.supabase.com/)
 *   **Neon Status:** [status.neon.tech](https://status.neon.tech/)
