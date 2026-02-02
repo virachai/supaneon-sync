@@ -39,5 +39,5 @@ jobs:
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-          PGHOSTADDR: 0.0.0.0
+          # PGHOSTADDR: 0.0.0.0
         run: python -m supaneon_sync.backup

@@ -80,21 +80,36 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         #     DUMP_FILE,
         #     supabase_url,
         # ]
+
+        # dump_cmd = [
+        #     "pg_dump",
+        #     "--host=db.dbfuabrxxbchdjfzphsd.supabase.co",
+        #     "--port=5432",
+        #     "--username=postgres",
+        #     "--format=custom",
+        #     "--schema=public",
+        #     "--no-owner",
+        #     "--no-privileges",
+        #     "--file",
+        #     DUMP_FILE,
+        #     "postgresql://",
+        # ]
+
         dump_cmd = [
             "pg_dump",
-            "--host=db.dbfuabrxxbchdjfzphsd.supabase.co",
-            "--port=5432",
-            "--username=postgres",
             "--format=custom",
             "--schema=public",
             "--no-owner",
             "--no-privileges",
             "--file",
             DUMP_FILE,
-            "postgresql://",
+            supabase_url,
         ]
 
-        subprocess.run(dump_cmd, check=True)
+        dump_env = os.environ.copy()
+        dump_env["PGHOSTADDR"] = "0.0.0.0"
+
+        subprocess.run(dump_cmd, check=True, env=dump_env)
 
         # ---------------------------
         # Restore into Neon
