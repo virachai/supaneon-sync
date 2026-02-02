@@ -1,14 +1,13 @@
-"""Backup orchestration: create Neon schema, run pg_dump from Supabase, restore into schema."""
+"""Backup orchestration: fetch collections from MongoDB, store in Neon as JSONB."""
 
 from __future__ import annotations
 
 import datetime
-import subprocess
-import os
-import socket
+import json
 import psycopg
-from typing import Optional
-from urllib.parse import urlparse
+import pymongo  # type: ignore
+from typing import Any, Optional
+from bson import ObjectId  # type: ignore
 
 from .config import validate_env
 
@@ -17,19 +16,13 @@ def _timestamp() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _resolve_to_ipv4(hostname: str) -> Optional[str]:
-    """Resolve hostname to an IPv4 address string."""
-    try:
-        # Resolve hostname to IPv4 address only
-        res = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
-        if res:
-            addr = res[0][4][0]
-            if isinstance(addr, str):
-                return addr
-        return None
-    except (socket.gaierror, IndexError) as e:
-        print(f"WARNING: Could not resolve {hostname} to IPv4: {e}")
-        return None
+class MongoJSONEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
+        return super().default(obj)
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
@@ -49,20 +42,13 @@ def delete_schema(conn_url: str, schema_name: str) -> None:
             cur.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
 
 
-def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
+def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
     cfg = validate_env()
-    supabase_url = supabase_url or cfg.supabase_database_url
+    mongodb_url = mongodb_url or cfg.mongodb_srv_url
     neon_url = neon_url or cfg.neon_database_url
 
-    # Resolve Supabase hostname to IPv4 to avoid IPv6 connectivity issues
-    parsed_supabase = urlparse(supabase_url)
-    supabase_ipv4 = None
-    if parsed_supabase.hostname:
-        print(f"Resolving Supabase hostname {parsed_supabase.hostname} to IPv4...")
-        supabase_ipv4 = _resolve_to_ipv4(parsed_supabase.hostname)
-
     # Rotation Policy: Max 6 backup schemas.
-    # If we already have >= 6, delete oldest until we have 5.
+    print("Checking rotation policy...")
     backup_schemas = list_backup_schemas(neon_url)
 
     max_schemas = 6
@@ -81,70 +67,60 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         with conn.cursor() as cur:
             cur.execute(f'CREATE SCHEMA "{new_schema}"')
 
-    print("Starting pg_dump (Supabase) | sed (remap) | psql (Neon) pipeline...")
+    print(f"Starting MongoDB backup from {mongodb_url}...")
 
-    # We use format=plain to allow sed-based remapping
-    dump_cmd = [
-        "pg_dump",
-        "--format=plain",
-        "--no-owner",
-        "--no-acl",
-        "--schema=public",
-        supabase_url,
-    ]
-
-    # Sed commands to remap 'public' to the new schema name
-    # 1. Replace "public." with "backup_...".
-    # 2. Replace "search_path = public" with "search_path = backup_...".
-    # 3. Replace "CREATE SCHEMA public" (if any) with new schema.
-    # We use -e multiple times or a script. Let's use multiple -e.
-    sed_cmd = [
-        "sed",
-        "-e",
-        f"s/\\bpublic\\./{new_schema}./g",
-        "-e",
-        f"s/search_path = public/search_path = {new_schema}/g",
-        "-e",
-        f"s/SCHEMA public/SCHEMA {new_schema}/g",
-    ]
-
-    psql_cmd = ["psql", "--dbname", neon_url, "--quiet", "--no-password"]
-
+    # Connect to MongoDB
+    client: Any = pymongo.MongoClient(mongodb_url)
     try:
-        # PGPASSWORD might be needed for psql if not in URL (though it should be)
-        env = os.environ.copy()
-        if cfg.neon_db_password:
-            env["PGPASSWORD"] = cfg.neon_db_password
+        # Ping check
+        client.admin.command("ping")
+        print("Connected to MongoDB successfully.")
 
-        # Chain: dump | sed | psql
-        dump_env = os.environ.copy()
-        if supabase_ipv4:
-            dump_env["PGHOSTADDR"] = supabase_ipv4
+        # Get database name from URL or default to 'primary'
+        db_name = pymongo.uri_parser.parse_uri(mongodb_url).get("database") or "test"
+        db = client[db_name]
+        collections = db.list_collection_names()
 
-        dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, env=dump_env)
-        sed_proc = subprocess.Popen(
-            sed_cmd, stdin=dump_proc.stdout, stdout=subprocess.PIPE
+        print(
+            f"Found {len(collections)} collections in database '{db_name}': {', '.join(collections)}"
         )
-        psql_proc = subprocess.Popen(psql_cmd, stdin=sed_proc.stdout, env=env)
 
-        # Close local handles
-        if dump_proc.stdout:
-            dump_proc.stdout.close()
-        if sed_proc.stdout:
-            sed_proc.stdout.close()
+        with psycopg.connect(neon_url) as pg_conn:
+            with pg_conn.cursor() as pg_cur:
+                # Set search_path to the new schema
+                pg_cur.execute(f'SET search_path TO "{new_schema}"')
 
-        psql_proc.wait()
+                for coll_name in collections:
+                    print(f"Backing up collection '{coll_name}'...")
 
-        if psql_proc.returncode != 0:
-            raise SystemExit(f"psql failed with exit code {psql_proc.returncode}")
-        if sed_proc.wait() != 0:
-            raise SystemExit(f"sed failed with exit code {sed_proc.returncode}")
-        if dump_proc.wait() != 0:
-            raise SystemExit(f"pg_dump failed with exit code {dump_proc.returncode}")
+                    # Create table for this collection
+                    pg_cur.execute(
+                        f'CREATE TABLE "{coll_name}" (id SERIAL PRIMARY KEY, data JSONB, created_at TIMESTAMPTZ DEFAULT NOW())'
+                    )
+
+                    # Fetch all documents and insert into Postgres
+                    coll = db[coll_name]
+                    docs = list(coll.find())
+
+                    if docs:
+                        # Prepare data for batch insert
+                        # Use our custom encoder to handle ObjectId and datetimes
+                        json_docs = [
+                            json.dumps(doc, cls=MongoJSONEncoder) for doc in docs
+                        ]
+
+                        # Batch insert
+                        query = f'INSERT INTO "{coll_name}" (data) VALUES (%s)'
+                        pg_cur.executemany(query, [(d,) for d in json_docs])
+
+                    print(f"  Done: {len(docs)} documents backed up.")
+
+            pg_conn.commit()
 
         print(f"Backup completed successfully in schema {new_schema}.")
 
     finally:
+        client.close()
         print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())
 

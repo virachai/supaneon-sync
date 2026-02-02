@@ -5,16 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "supaneon-sync"
 version = "0.1.0"
-description = "Supabase -> Neon logical backup and restore automation"
+description = "MongoDB -> Neon logical backup and restore automation"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [{name = "supaneon"}]
+authors = [{name = "monon"}]
 dependencies = [
     "requests>=2.31",
     "python-dotenv>=1.0",
     "typer>=0.9",
     "psycopg[binary]>=3.2",
+    "pymongo[srv]>=4.6",
 ]
 
 [project.optional-dependencies]
