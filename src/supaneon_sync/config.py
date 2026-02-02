@@ -44,7 +44,7 @@ def validate_env() -> Config:
     neon_key = os.environ.get("NEON_API_KEY")
     if neon_key:
         neon_key = neon_key.strip()
-    
+
     neon_project = os.environ.get("NEON_PROJECT_ID")
     if neon_project:
         neon_project = neon_project.strip()

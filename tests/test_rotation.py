@@ -35,10 +35,10 @@ class TestSchemaRotation(unittest.TestCase):
         # 1. list_backup_schemas should be called (via the cursor execute)
         # 2. deletion should be called for the oldest 2 (7 - 5 = 2)
         # The oldest are indices 0 and 1.
-        
+
         # We need to check the execute calls on the cursor
         execute_calls = [call.args[0] for call in mock_cur.execute.call_args_list]
-        
+
         # Check for drops
         # Expected: DROP SCHEMA IF EXISTS "backup_20230101T000000Z" CASCADE
         # Expected: DROP SCHEMA IF EXISTS "backup_20230101T000001Z" CASCADE
