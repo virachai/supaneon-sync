@@ -94,8 +94,7 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "REVOKE ",
             "ALTER DEFAULT PRIVILEGES",
             "SET ROLE",
-            "anon",
-            "ping" "POLICY",
+            "POLICY",
         )
 
         # We replace "public" with the new schema name in the SQL dump.
@@ -104,7 +103,11 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             with open(REMAPPED_FILE, "w", encoding="utf-8") as fout:
                 for line in fin:
                     # Skip permission statements
-                    if line.startswith(SKIP_PREFIXES):
+                    if (
+                        line.startswith(SKIP_PREFIXES)
+                        or "ping" in line
+                        or "anon" in line
+                    ):
                         continue
 
                     new_line = line.replace('"public"', f'"{new_schema}"')
