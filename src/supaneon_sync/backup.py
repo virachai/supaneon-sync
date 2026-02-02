@@ -5,14 +5,45 @@ from __future__ import annotations
 import datetime
 import subprocess
 import os
+import socket
 import psycopg
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 from .config import validate_env
 
 
 def _timestamp() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _force_ipv4_url(url: str) -> str:
+    """Replace hostname in PostgreSQL URL with IPv4 address to avoid IPv6 issues."""
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return url
+
+    try:
+        # Resolve hostname to IPv4 address only
+        ipv4_addr = socket.getaddrinfo(
+            parsed.hostname, parsed.port, socket.AF_INET, socket.SOCK_STREAM
+        )[0][4][0]
+
+        # Replace hostname with IPv4 address in the URL
+        # For IPv4, no brackets needed
+        if parsed.port:
+            new_netloc = (
+                f"{parsed.username}:{parsed.password}@{ipv4_addr}:{parsed.port}"
+            )
+        else:
+            new_netloc = f"{parsed.username}:{parsed.password}@{ipv4_addr}"
+
+        new_parsed = parsed._replace(netloc=new_netloc)
+        return urlunparse(new_parsed)
+    except (socket.gaierror, IndexError) as e:
+        print(f"WARNING: Could not resolve {parsed.hostname} to IPv4: {e}")
+        print("Falling back to original URL...")
+        return url
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
@@ -36,6 +67,10 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     cfg = validate_env()
     supabase_url = supabase_url or cfg.supabase_database_url
     neon_url = neon_url or cfg.neon_database_url
+
+    # Force IPv4 resolution to avoid IPv6 connectivity issues
+    print("Resolving Supabase hostname to IPv4...")
+    supabase_url = _force_ipv4_url(supabase_url)
 
     # Rotation Policy: Max 6 backup schemas.
     # If we already have >= 6, delete oldest until we have 5.
