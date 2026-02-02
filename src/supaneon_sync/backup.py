@@ -17,33 +17,19 @@ def _timestamp() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _force_ipv4_url(url: str) -> str:
-    """Replace hostname in PostgreSQL URL with IPv4 address to avoid IPv6 issues."""
-    parsed = urlparse(url)
-    if not parsed.hostname:
-        return url
-
+def _resolve_to_ipv4(hostname: str) -> Optional[str]:
+    """Resolve hostname to an IPv4 address string."""
     try:
         # Resolve hostname to IPv4 address only
-        ipv4_addr = socket.getaddrinfo(
-            parsed.hostname, parsed.port, socket.AF_INET, socket.SOCK_STREAM
-        )[0][4][0]
-
-        # Replace hostname with IPv4 address in the URL
-        # For IPv4, no brackets needed
-        if parsed.port:
-            new_netloc = (
-                f"{parsed.username}:{parsed.password}@{ipv4_addr}:{parsed.port}"
-            )
-        else:
-            new_netloc = f"{parsed.username}:{parsed.password}@{ipv4_addr}"
-
-        new_parsed = parsed._replace(netloc=new_netloc)
-        return urlunparse(new_parsed)
+        res = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+        if res:
+            addr = res[0][4][0]
+            if isinstance(addr, str):
+                return addr
+        return None
     except (socket.gaierror, IndexError) as e:
-        print(f"WARNING: Could not resolve {parsed.hostname} to IPv4: {e}")
-        print("Falling back to original URL...")
-        return url
+        print(f"WARNING: Could not resolve {hostname} to IPv4: {e}")
+        return None
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
@@ -68,9 +54,12 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
     supabase_url = supabase_url or cfg.supabase_database_url
     neon_url = neon_url or cfg.neon_database_url
 
-    # Force IPv4 resolution to avoid IPv6 connectivity issues
-    print("Resolving Supabase hostname to IPv4...")
-    supabase_url = _force_ipv4_url(supabase_url)
+    # Resolve Supabase hostname to IPv4 to avoid IPv6 connectivity issues
+    parsed_supabase = urlparse(supabase_url)
+    supabase_ipv4 = None
+    if parsed_supabase.hostname:
+        print(f"Resolving Supabase hostname {parsed_supabase.hostname} to IPv4...")
+        supabase_ipv4 = _resolve_to_ipv4(parsed_supabase.hostname)
 
     # Rotation Policy: Max 6 backup schemas.
     # If we already have >= 6, delete oldest until we have 5.
@@ -128,7 +117,11 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             env["PGPASSWORD"] = cfg.neon_db_password
 
         # Chain: dump | sed | psql
-        dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
+        dump_env = os.environ.copy()
+        if supabase_ipv4:
+            dump_env["PGHOSTADDR"] = supabase_ipv4
+
+        dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, env=dump_env)
         sed_proc = subprocess.Popen(
             sed_cmd, stdin=dump_proc.stdout, stdout=subprocess.PIPE
         )

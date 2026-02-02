@@ -22,6 +22,8 @@ jobs:
         run: ruff check .
       - name: Format check (black)
         run: black --check .
+      - name: Type check (mypy)
+        run: mypy src
       - name: Tests
         env:
           SUPABASE_DATABASE_URL: "postgres://user:pass@localhost/db?sslmode=require"
