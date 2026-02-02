@@ -21,8 +21,7 @@ def list_backup_schemas(conn_url: str) -> list[str]:
     with psycopg.connect(conn_url) as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
-            cur.execute(
-                """
+            cur.execute("""
                 DO $$
                 DECLARE r RECORD;
                 BEGIN
@@ -37,8 +36,7 @@ def list_backup_schemas(conn_url: str) -> list[str]:
                         );
                     END LOOP;
                 END$$;
-                """
-            )
+                """)
             return [row[0] for row in cur.fetchall()]
 
     # with psycopg.connect(conn_url) as conn:
