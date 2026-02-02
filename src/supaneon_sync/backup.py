@@ -119,3 +119,7 @@ def run(supabase_url: Optional[str] = None, neon_api_key: Optional[str] = None):
         # Placeholders for cleanup/metadata logging
         print(f"backup.branch={branch_name}")
         print("backup.timestamp=" + _timestamp())
+
+
+if __name__ == "__main__":
+    run()

@@ -62,3 +62,7 @@ def run_restore_test():
             client.delete_branch(test_branch.id)
         except Exception as e:
             print(f"WARNING: Failed to delete test branch {test_branch_name}: {e}")
+
+
+if __name__ == "__main__":
+    run_restore_test()
