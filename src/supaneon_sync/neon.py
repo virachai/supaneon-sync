@@ -10,6 +10,8 @@ from __future__ import annotations
 import datetime
 import requests
 from dataclasses import dataclass
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 NEON_API_BASE = "https://api.neon.tech"  # placeholder; adjust if needed
 
@@ -27,7 +29,21 @@ class NeonClient:
     def __init__(self, api_key: str, project_id: str):
         self.api_key = api_key
         self.project_id = project_id
+
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,  # wait 1s, 2s, 4s
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "DELETE"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+
         self.session = requests.Session()
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
         self.session.headers.update(
             {
                 "Authorization": f"Bearer {self.api_key}",
