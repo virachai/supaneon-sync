@@ -26,6 +26,6 @@ jobs:
         run: mypy src
       - name: Tests
         env:
-          SUPABASE_DATABASE_URL: "postgres://user:pass@localhost/db?sslmode=require"
+          MONGODB_SRV_URL: "mongodb://user:pass@localhost:27017/db"
           NEON_DATABASE_URL: "postgres://user:pass@localhost/neondb?sslmode=require"
         run: pytest -q

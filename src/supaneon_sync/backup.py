@@ -33,9 +33,9 @@ def delete_schema(conn_url: str, schema_name: str) -> None:
             cur.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
 
 
-def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
+def run(mongodb_url: Optional[str] = None, neon_url: Optional[str] = None):
     cfg = validate_env()
-    supabase_url = supabase_url or cfg.supabase_database_url
+    mongodb_url = mongodb_url or cfg.mongodb_srv_url
     neon_url = neon_url or cfg.neon_database_url
 
     # Rotation Policy: Max 6 backup schemas.
@@ -105,6 +105,7 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         print(f"ERROR during backup: {e}")
         raise SystemExit(1)
     finally:
+        client.close()
         print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())
 
