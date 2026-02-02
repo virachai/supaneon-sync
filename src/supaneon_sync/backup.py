@@ -70,16 +70,30 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         # ---------------------------
         print("Dumping Supabase database (custom format)...")
 
+        # dump_cmd = [
+        #     "pg_dump",
+        #     "--format=custom",
+        #     "--schema=public",
+        #     "--no-owner",
+        #     "--no-privileges",
+        #     "--file",
+        #     DUMP_FILE,
+        #     supabase_url,
+        # ]
         dump_cmd = [
             "pg_dump",
+            "--host=db.dbfuabrxxbchdjfzphsd.supabase.co",
+            "--port=5432",
+            "--username=postgres",
             "--format=custom",
             "--schema=public",
             "--no-owner",
             "--no-privileges",
             "--file",
             DUMP_FILE,
-            supabase_url,
+            "postgresql://",
         ]
+
 
         subprocess.run(dump_cmd, check=True)
 
