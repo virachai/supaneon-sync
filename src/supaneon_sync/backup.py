@@ -68,39 +68,11 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         # ---------------------------
         # Dump Supabase using pg_dump
         # ---------------------------
-        print("Dumping Supabase database (custom format)...")
-
-        # dump_cmd = [
-        #     "pg_dump",
-        #     "--format=custom",
-        #     "--schema=public",
-        #     "--no-owner",
-        #     "--no-privileges",
-        #     "--file",
-        #     DUMP_FILE,
-        #     supabase_url,
-        # ]
-
-        # dump_cmd = [
-        #     "pg_dump",
-        #     "--host=db.dbfuabrxxbchdjfzphsd.supabase.co",
-        #     "--port=5432",
-        #     "--username=postgres",
-        #     "--format=custom",
-        #     "--schema=public",
-        #     "--no-owner",
-        #     "--no-privileges",
-        #     "--file",
-        #     DUMP_FILE,
-        #     "postgresql://",
-        # ]
-
-        # dump_env = os.environ.copy()
-        # dump_env["PGHOSTADDR"] = "0.0.0.0"
+        print("Dumping Supabase database (plain format)...")
 
         dump_cmd = [
             "pg_dump",
-            "--format=custom",
+            "--format=plain",
             "--schema=public",
             "--no-owner",
             "--no-privileges",
@@ -110,7 +82,29 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         ]
 
         subprocess.run(dump_cmd, check=True)
-        # subprocess.run(dump_cmd, check=True, env=dump_env)
+
+        # ---------------------------
+        # Schema Remapping
+        # ---------------------------
+        print(f"Remapping schema 'public' to '{new_schema}'...")
+        REMAPPED_FILE = f"{DUMP_FILE}.remapped"
+
+        # We replace "public" with the new schema name in the SQL dump.
+        # This handles table creation and references.
+        # import re
+
+        # Regex to match "public" as a schema qualifier
+        # Matches "public". (with quotes) or public. (without quotes)
+        # and also handles GRANT/USAGE on SCHEMA public
+        # Using a simple but effective replacement for common patterns in pg_dump
+        with open(DUMP_FILE, "r", encoding="utf-8") as fin:
+            with open(REMAPPED_FILE, "w", encoding="utf-8") as fout:
+                for line in fin:
+                    # Replace "public" schema references
+                    new_line = line.replace('"public"', f'"{new_schema}"')
+                    new_line = new_line.replace(" public.", f" {new_schema}.")
+                    new_line = new_line.replace("SCHEMA public", f"SCHEMA {new_schema}")
+                    fout.write(new_line)
 
         # ---------------------------
         # Restore into Neon
@@ -118,27 +112,25 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         print(f"Restoring into Neon schema {new_schema}...")
 
         restore_cmd = [
-            "pg_restore",
-            "--no-owner",
-            "--no-privileges",
-            "--schema",
-            new_schema,
+            "psql",
             "--dbname",
             neon_url,
-            DUMP_FILE,
+            "--file",
+            REMAPPED_FILE,
+            "--quiet",
+            "--set",
+            "ON_ERROR_STOP=1",
         ]
 
         subprocess.run(restore_cmd, check=True)
 
         print(f"Backup completed successfully in schema {new_schema}.")
 
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR during backup: {e}")
-        raise SystemExit(1)
-
     finally:
         if os.path.exists(DUMP_FILE):
             os.remove(DUMP_FILE)
+        if "REMAPPED_FILE" in locals() and os.path.exists(REMAPPED_FILE):
+            os.remove(REMAPPED_FILE)
 
         print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())

@@ -24,12 +24,15 @@ class TestSchemaRotation(unittest.TestCase):
         mock_cur.fetchall.return_value = [[s] for s in existing_schemas]
 
         # Mock supabase db dump output
-        mock_result = MagicMock()
-        mock_result.stdout = "CREATE TABLE test (id int);"
-        mock_subprocess.return_value = mock_result
+        # In the new version, we use subprocess.run for pg_dump and psql
+        # No need to mock return_value.stdout for psql
 
         # Run the backup
-        backup.run()
+        # Need to mock 'builtins.open' because backup.py now reads/writes files
+        with patch("builtins.open", MagicMock()):
+            with patch("os.path.exists", return_value=True):
+                with patch("os.remove", MagicMock()):
+                    backup.run()
 
         # Verification:
         # 1. list_backup_schemas should be called

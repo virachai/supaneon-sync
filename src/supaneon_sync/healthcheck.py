@@ -18,9 +18,17 @@ def run_healthcheck(db_url: str, schema: str = "public") -> None:
 
                 # Check for table existence
                 cur.execute(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
+                    "SELECT table_name "
+                    "FROM information_schema.tables "
+                    "WHERE table_schema = %s",
                     (schema,),
                 )
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError(
+                        f"COUNT query returned no rows for schema '{schema}'"
+                    )
+
                 tables = [row[0] for row in cur.fetchall()]
 
                 if not tables:
@@ -28,21 +36,27 @@ def run_healthcheck(db_url: str, schema: str = "public") -> None:
 
                 print(f"  Found {len(tables)} tables: {', '.join(tables)}")
 
-                # Check at least one table has a 'data' column
-                test_table = tables[0]
-                cur.execute(
-                    "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND column_name = 'data'",
-                    (schema, test_table),
-                )
-                if not cur.fetchone():
-                    raise ValueError(
-                        f"Table '{test_table}' is missing the expected 'data' column"
-                    )
+                # Check at least one table has rows
+                total_rows = 0
+                for table in tables:
+                    cur.execute(f'SELECT count(*) FROM "{schema}"."{table}"')
 
-                cur.execute(f'SELECT count(*) FROM "{test_table}"')
-                row = cur.fetchone()
-                count = row[0] if row is not None else 0
-                print(f"  Verified table '{test_table}' has {count} rows.")
+                    row = cur.fetchone()
+                    if row is None:
+                        raise ValueError(
+                            f"COUNT query returned no rows for table '{table}'"
+                        )
+
+                    count: int = row[0]
+                    total_rows += count
+
+                    if count > 0:
+                        print(f"  Verified table '{table}' has {count} rows.")
+
+                if total_rows == 0:
+                    raise ValueError(f"All tables in schema '{schema}' are empty")
+
+                print(f"  Total rows across all tables: {total_rows}")
 
     except Exception as exc:  # pragma: no cover - integration-only
         raise SystemExit(f"Healthcheck failed for schema '{schema}': {exc}")
