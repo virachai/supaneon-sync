@@ -1,4 +1,9 @@
-"""Backup orchestration: dump Supabase database and restore into timestamped Neon schema."""
+"""
+Backup orchestration:
+- Dump Supabase schema (schema-only)
+- Dump Supabase data (data-only)
+- Restore into timestamped Neon schema
+"""
 
 from __future__ import annotations
 
@@ -10,11 +15,18 @@ from typing import Optional
 
 from .config import validate_env
 
-DUMP_FILE = "supabase.dump"
+SCHEMA_DUMP = "schema.sql"
+SCHEMA_REMAPPED = "schema.remapped.sql"
+DATA_DUMP = "data.sql"
 
 
 def _timestamp() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+# ---------------------------------------------------------------------
+# Schema rotation helpers
+# ---------------------------------------------------------------------
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
@@ -25,7 +37,7 @@ def list_backup_schemas(conn_url: str) -> list[str]:
                 FROM information_schema.schemata
                 WHERE schema_name LIKE 'backup_%'
                 ORDER BY schema_name ASC
-                """)
+            """)
             return [row[0] for row in cur.fetchall()]
 
 
@@ -34,6 +46,49 @@ def delete_schema(conn_url: str, schema_name: str) -> None:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
+
+
+# ---------------------------------------------------------------------
+# Schema remapping
+# ---------------------------------------------------------------------
+
+
+def remap_schema_file(src: str, dst: str, new_schema: str) -> None:
+    SKIP_PREFIXES = (
+        "GRANT ",
+        "REVOKE ",
+        "ALTER DEFAULT PRIVILEGES",
+        "SET ROLE",
+        "CREATE POLICY",
+        "ALTER POLICY",
+        "DROP POLICY",
+    )
+
+    SKIP_CONTAINS = (
+        "ROW LEVEL SECURITY",
+        "TO anon",
+        "TO authenticated",
+    )
+
+    with (
+        open(src, "r", encoding="utf-8") as fin,
+        open(dst, "w", encoding="utf-8") as fout,
+    ):
+
+        for line in fin:
+            if line.startswith(SKIP_PREFIXES) or any(x in line for x in SKIP_CONTAINS):
+                continue
+
+            line = line.replace('"public"', f'"{new_schema}"')
+            line = line.replace("SCHEMA public", f"SCHEMA {new_schema}")
+            line = line.replace("'public.", f"'{new_schema}.")
+
+            fout.write(line)
+
+
+# ---------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------
 
 
 def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
@@ -66,94 +121,86 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
 
     try:
         # ---------------------------
-        # Dump Supabase using pg_dump
+        # Dump schema-only
         # ---------------------------
-        print("Dumping Supabase database (plain format)...")
+        print("Dumping Supabase schema (schema-only)...")
 
-        dump_cmd = [
-            "pg_dump",
-            "--format=plain",
-            "--schema=public",
-            "--no-owner",
-            "--no-privileges",
-            "--no-acl",
-            "--disable-triggers",
-            "--file",
-            DUMP_FILE,
-            supabase_url,
-        ]
-
-        subprocess.run(dump_cmd, check=True)
-
-        # ---------------------------
-        # Schema Remapping
-        # ---------------------------
-        print(f"Remapping schema 'public' to '{new_schema}'...")
-        REMAPPED_FILE = f"{DUMP_FILE}.remapped"
-
-        SKIP_PREFIXES = (
-            "GRANT ",
-            "REVOKE ",
-            "ALTER DEFAULT PRIVILEGES",
-            "SET ROLE",
-            "CREATE POLICY",
-            "ALTER POLICY",
-            "DROP POLICY",
+        subprocess.run(
+            [
+                "pg_dump",
+                "--schema-only",
+                "--schema=public",
+                "--no-owner",
+                "--no-acl",
+                supabase_url,
+            ],
+            check=True,
+            stdout=open(SCHEMA_DUMP, "w"),
         )
 
-        SKIP_CONTAINS = (
-            "ROW LEVEL SECURITY",
-            "TO anon",
-            "TO authenticated",
+        # ---------------------------
+        # Dump data-only
+        # ---------------------------
+        print("Dumping Supabase data (data-only)...")
+
+        subprocess.run(
+            [
+                "pg_dump",
+                "--data-only",
+                "--schema=public",
+                "--disable-triggers",
+                supabase_url,
+            ],
+            check=True,
+            stdout=open(DATA_DUMP, "w"),
         )
 
-        # We replace "public" with the new schema name in the SQL dump.
-        # This handles table creation and references.
-        with open(DUMP_FILE, "r", encoding="utf-8") as fin:
-            with open(REMAPPED_FILE, "w", encoding="utf-8") as fout:
-                for line in fin:
-                    if line.startswith(SKIP_PREFIXES) or any(
-                        x in line for x in SKIP_CONTAINS
-                    ):
-                        continue
-
-                    new_line = line.replace('"public"', f'"{new_schema}"')
-                    new_line = new_line.replace(" public.", f" {new_schema}.")
-                    new_line = new_line.replace("SCHEMA public", f"SCHEMA {new_schema}")
-
-                    # Supabase → Neon fix
-                    new_line = new_line.replace("extensions.", "public.")
-                    new_line = new_line.replace('"extensions".', '"public".')
-
-                    new_line = new_line.replace("'public.", f"'{new_schema}.")
-
-                    fout.write(new_line)
+        # ---------------------------
+        # Remap schema
+        # ---------------------------
+        print(f"Remapping schema to {new_schema}...")
+        remap_schema_file(SCHEMA_DUMP, SCHEMA_REMAPPED, new_schema)
 
         # ---------------------------
-        # Restore into Neon
+        # Restore schema
         # ---------------------------
-        print(f"Restoring into Neon schema {new_schema}...")
+        print("Restoring schema into Neon...")
 
-        restore_cmd = [
-            "psql",
-            "--dbname",
-            neon_url,
-            "--file",
-            REMAPPED_FILE,
-            "--quiet",
-            "--set",
-            "ON_ERROR_STOP=1",
-        ]
+        subprocess.run(
+            [
+                "psql",
+                neon_url,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-f",
+                SCHEMA_REMAPPED,
+            ],
+            check=True,
+        )
 
-        subprocess.run(restore_cmd, check=True)
+        # ---------------------------
+        # Restore data (via search_path)
+        # ---------------------------
+        print("Restoring data into Neon...")
+
+        restore_data_sql = f"""
+        SET search_path TO "{new_schema}";
+        \\i {DATA_DUMP}
+        """
+
+        subprocess.run(
+            ["psql", neon_url, "-v", "ON_ERROR_STOP=1"],
+            input=restore_data_sql,
+            text=True,
+            check=True,
+        )
 
         print(f"Backup completed successfully in schema {new_schema}.")
 
     finally:
-        if os.path.exists(DUMP_FILE):
-            os.remove(DUMP_FILE)
-        if "REMAPPED_FILE" in locals() and os.path.exists(REMAPPED_FILE):
-            os.remove(REMAPPED_FILE)
+        for f in (SCHEMA_DUMP, SCHEMA_REMAPPED, DATA_DUMP):
+            if os.path.exists(f):
+                os.remove(f)
 
         print(f"backup.schema={new_schema}")
         print("backup.timestamp=" + _timestamp())
