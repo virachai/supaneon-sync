@@ -57,7 +57,7 @@ The tool relies entirely on environment variables for configuration. Create a `.
 | :--- | :--- | :---: |
 | `SUPABASE_DATABASE_URL` | Connection string for your Supabase database. **Must** include `sslmode=require`. | ✅ |
 | `NEON_API_KEY` | Your Neon API Key for managing branches. | ✅ |
-| `NEON_PROJECT_ID` | The ID of the Neon project to use as the destination. | Optional |
+| `NEON_PROJECT_ID` | The ID of the Neon project to use as the destination. | ✅ |
 | `LOG_LEVEL` | Logging verbosity (default: `INFO`). | Optional |
 
 > **Note**: `supaneon-sync` strictly enforces `sslmode=require` on all database connections.

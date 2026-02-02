@@ -195,7 +195,7 @@ SUPABASE_DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"
 # Neon API key
 NEON_API_KEY="your-neon-api-key"
 
-# Optional: Target specific Neon project
+# Required: Target specific Neon project
 NEON_PROJECT_ID="your-project-id"
 ```
 

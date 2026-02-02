@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-REQUIRED_ENVS = ["SUPABASE_DATABASE_URL", "NEON_API_KEY"]
+REQUIRED_ENVS = ["SUPABASE_DATABASE_URL", "NEON_API_KEY", "NEON_PROJECT_ID"]
 
 DB_URL_RE = re.compile(r"^postgres(?:ql)?:\/\/.*[?&]sslmode=require")
 
@@ -16,7 +16,7 @@ DB_URL_RE = re.compile(r"^postgres(?:ql)?:\/\/.*[?&]sslmode=require")
 class Config:
     supabase_database_url: str
     neon_api_key: str
-    neon_project_id: str | None = None
+    neon_project_id: str
     neon_db_password: str | None = None
     neon_db_user: str | None = None
 
@@ -37,7 +37,7 @@ def validate_env() -> Config:
         raise SystemExit("SUPABASE_DATABASE_URL must include sslmode=require")
 
     neon_key = os.environ["NEON_API_KEY"].strip()
-    neon_project = os.environ.get("NEON_PROJECT_ID")
+    neon_project = os.environ["NEON_PROJECT_ID"].strip()
 
     neon_url = os.environ.get("NEON_DATABASE_URL")
     neon_password = os.environ.get("NEON_DB_PASSWORD")

@@ -24,7 +24,7 @@ class NeonBranch:
 
 
 class NeonClient:
-    def __init__(self, api_key: str, project_id: str | None = None):
+    def __init__(self, api_key: str, project_id: str):
         self.api_key = api_key
         self.project_id = project_id
         self.session = requests.Session()
@@ -61,11 +61,7 @@ class NeonClient:
     ) -> NeonBranch:
         """Create a Neon branch. Returns NeonBranch dataclass on success."""
         # Example POST: /v1/projects/{project}/branches
-        path = (
-            f"/v1/projects/{self.project_id}/branches"
-            if self.project_id
-            else "/v1/branches"
-        )
+        path = f"/v1/projects/{self.project_id}/branches"
         payload = {"name": branch_name}
         if parent_id:
             payload["parent_id"] = parent_id
@@ -97,19 +93,11 @@ class NeonClient:
 
     def delete_branch(self, branch_id: str) -> None:
         """Delete a branch by its ID."""
-        path = (
-            f"/v1/projects/{self.project_id}/branches/{branch_id}"
-            if self.project_id
-            else f"/v1/branches/{branch_id}"
-        )
+        path = f"/v1/projects/{self.project_id}/branches/{branch_id}"
         self._request("DELETE", path)
 
     def list_branches(self) -> list[NeonBranch]:
-        path = (
-            f"/v1/projects/{self.project_id}/branches"
-            if self.project_id
-            else "/v1/branches"
-        )
+        path = f"/v1/projects/{self.project_id}/branches"
         resp = self._request("GET", path)
         data = resp.json()
 
