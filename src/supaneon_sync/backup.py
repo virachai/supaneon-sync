@@ -18,15 +18,38 @@ def _timestamp() -> str:
 
 
 def list_backup_schemas(conn_url: str) -> list[str]:
-    with psycopg.connect(conn_url) as conn:
+    with psycopg.connect(neon_url) as conn:
+        conn.autocommit = True
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT schema_name
-                FROM information_schema.schemata
-                WHERE schema_name LIKE 'backup_%'
-                ORDER BY schema_name ASC
-                """)
-            return [row[0] for row in cur.fetchall()]
+            cur.execute(
+                f"""
+            DO $$
+            DECLARE r RECORD;
+            BEGIN
+                FOR r IN
+                    SELECT tablename
+                    FROM pg_tables
+                    WHERE schemaname = %s
+                LOOP
+                    EXECUTE format(
+                        'ALTER TABLE %I.%I DISABLE ROW LEVEL SECURITY',
+                        %s, r.tablename
+                    );
+                END LOOP;
+            END$$;
+            """,
+                (new_schema, new_schema),
+            )
+
+    # with psycopg.connect(conn_url) as conn:
+    #     with conn.cursor() as cur:
+    #         cur.execute("""
+    #             SELECT schema_name
+    #             FROM information_schema.schemata
+    #             WHERE schema_name LIKE 'backup_%'
+    #             ORDER BY schema_name ASC
+    #             """)
+    #         return [row[0] for row in cur.fetchall()]
 
 
 def delete_schema(conn_url: str, schema_name: str) -> None:
@@ -76,6 +99,8 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "--schema=public",
             "--no-owner",
             "--no-privileges",
+            "--no-acl",
+            "--disable-triggers",
             "--file",
             DUMP_FILE,
             supabase_url,
@@ -94,7 +119,15 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
             "REVOKE ",
             "ALTER DEFAULT PRIVILEGES",
             "SET ROLE",
-            "POLICY",
+            "CREATE POLICY",
+            "ALTER POLICY",
+            "DROP POLICY",
+        )
+
+        SKIP_CONTAINS = (
+            "ROW LEVEL SECURITY",
+            "TO anon",
+            "TO authenticated",
         )
 
         # We replace "public" with the new schema name in the SQL dump.
@@ -102,11 +135,8 @@ def run(supabase_url: Optional[str] = None, neon_url: Optional[str] = None):
         with open(DUMP_FILE, "r", encoding="utf-8") as fin:
             with open(REMAPPED_FILE, "w", encoding="utf-8") as fout:
                 for line in fin:
-                    # Skip permission statements
-                    if (
-                        line.startswith(SKIP_PREFIXES)
-                        or "ping" in line
-                        or "anon" in line
+                    if line.startswith(SKIP_PREFIXES) or any(
+                        x in line for x in SKIP_CONTAINS
                     ):
                         continue
 
