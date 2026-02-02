@@ -1,4 +1,4 @@
-# Supabase to Neon Sync
+# Supabase to Neon Sync v1.2.0
 
 **Production-grade Supabase to Neon logical backup and disaster recovery automation.**
 
