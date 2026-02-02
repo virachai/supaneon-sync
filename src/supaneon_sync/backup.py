@@ -19,35 +19,14 @@ def _timestamp() -> str:
 
 def list_backup_schemas(conn_url: str) -> list[str]:
     with psycopg.connect(conn_url) as conn:
-        conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("""
-                DO $$
-                DECLARE r RECORD;
-                BEGIN
-                    FOR r IN
-                        SELECT tablename
-                        FROM pg_tables
-                        WHERE schemaname = %s
-                    LOOP
-                        EXECUTE format(
-                            'ALTER TABLE %I.%I DISABLE ROW LEVEL SECURITY',
-                            %s, r.tablename
-                        );
-                    END LOOP;
-                END$$;
+                SELECT schema_name
+                FROM information_schema.schemata
+                WHERE schema_name LIKE 'backup_%'
+                ORDER BY schema_name ASC
                 """)
             return [row[0] for row in cur.fetchall()]
-
-    # with psycopg.connect(conn_url) as conn:
-    #     with conn.cursor() as cur:
-    #         cur.execute("""
-    #             SELECT schema_name
-    #             FROM information_schema.schemata
-    #             WHERE schema_name LIKE 'backup_%'
-    #             ORDER BY schema_name ASC
-    #             """)
-    #         return [row[0] for row in cur.fetchall()]
 
 
 def delete_schema(conn_url: str, schema_name: str) -> None:
